@@ -1,0 +1,101 @@
+/* Design tokens — Next Academy "Technical Warmth" */
+/* Light values on :root, dark overrides on [data-theme="dark"] */
+
+:root {
+  /* Colors — surface */
+  --color-bg:      #f8fafc;
+  --color-fg:      #0b1326;
+  --color-muted:   #64748b;
+  --color-border:  #e2e8f0;
+
+  /* Colors — primary (Electric Indigo) */
+  --color-primary:    #494bd6;
+  --color-primary-fg: #ffffff;
+
+  /* Colors — accent (Amber) */
+  --color-accent:    #ee9800;
+  --color-accent-fg: #5b3800;
+
+  /* Colors — semantic */
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-error:   #dc2626;
+  --color-info:    #2563eb;
+
+  /* Colors — neutral scale */
+  --color-neutral-50:  #f8fafc;
+  --color-neutral-100: #f1f5f9;
+  --color-neutral-200: #e2e8f0;
+  --color-neutral-300: #cbd5e1;
+  --color-neutral-400: #94a3b8;
+  --color-neutral-500: #64748b;
+  --color-neutral-600: #475569;
+  --color-neutral-700: #334155;
+  --color-neutral-800: #1e293b;
+  --color-neutral-900: #0f172a;
+
+  /* Radii */
+  --radius-sm:   0.25rem;
+  --radius-md:   0.75rem;
+  --radius-lg:   1rem;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(11,19,38,0.12), 0 1px 2px rgba(11,19,38,0.08);
+  --shadow-md: 0 4px 16px rgba(11,19,38,0.16), 0 2px 6px rgba(11,19,38,0.10);
+  --shadow-lg: 0 20px 50px rgba(0,0,0,0.30), 0 8px 24px rgba(11,19,38,0.20);
+
+  /* Spacing multipliers (base unit 4px) */
+  --spacing-0:  0px;
+  --spacing-1:  4px;
+  --spacing-2:  8px;
+  --spacing-3:  12px;
+  --spacing-4:  16px;
+  --spacing-6:  24px;
+  --spacing-8:  32px;
+  --spacing-12: 48px;
+  --spacing-16: 64px;
+  --spacing-24: 96px;
+  --spacing-32: 128px;
+  --spacing-48: 192px;
+  --spacing-64: 256px;
+}
+
+[data-theme="dark"] {
+  /* Colors — surface */
+  --color-bg:      #0b1326;
+  --color-fg:      #dae2fd;
+  --color-muted:   #908fa0;
+  --color-border:  #464554;
+
+  /* Colors — primary */
+  --color-primary:    #c0c1ff;
+  --color-primary-fg: #1000a9;
+
+  /* Colors — accent */
+  --color-accent:    #ffb95f;
+  --color-accent-fg: #472a00;
+
+  /* Colors — semantic */
+  --color-success: #4ade80;
+  --color-warning: #fbbf24;
+  --color-error:   #ffb4ab;
+  --color-info:    #93c5fd;
+
+  /* Colors — neutral scale (Inky Slates) */
+  --color-neutral-50:  #060e20;
+  --color-neutral-100: #0b1326;
+  --color-neutral-200: #131b2e;
+  --color-neutral-300: #171f33;
+  --color-neutral-400: #222a3d;
+  --color-neutral-500: #2d3449;
+  --color-neutral-600: #31394d;
+  --color-neutral-700: #464554;
+  --color-neutral-800: #908fa0;
+  --color-neutral-900: #c7c4d7;
+
+  /* Shadows — slightly stronger on dark */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.30), 0 1px 2px rgba(0,0,0,0.20);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.40), 0 2px 6px rgba(0,0,0,0.25);
+  --shadow-lg: 0 20px 50px rgba(0,0,0,0.60), 0 8px 24px rgba(0,0,0,0.40);
+}
