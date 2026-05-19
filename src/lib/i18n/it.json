@@ -17,10 +17,15 @@
   "curriculum.subtitle": "{count} lezioni · {hours}h {min}min · {chapters} capitoli",
   "curriculum.lessons":  "lezioni",
   "curriculum.min":      "min",
+  "curriculum.topics":   "Argomenti",
 
-  "lesson.chapter_badge": "Lezione {order} · {duration} min",
-  "lesson.content_soon":  "Contenuto della lezione in arrivo.",
-  "lesson.playground_note": "Questa lezione conterrà contenuto MDX e un playground interattivo con Sandpack.",
+  "chapter.react_fundamentals":  "Fondamenti di React",
+  "chapter.nextjs_essentials":   "Essenziali di Next.js",
+  "chapter.going_to_production": "Verso la Produzione",
+
+  "lesson.chapter_badge":    "Lezione {order} · {duration} min",
+  "lesson.content_soon":     "Contenuto della lezione in arrivo.",
+  "lesson.playground_note":  "Questa lezione conterrà contenuto MDX e un playground interattivo con Sandpack.",
   "lesson.prev": "← Precedente",
   "lesson.next": "Successiva →",
 
@@ -29,6 +34,21 @@
   "notfound.body":    "Questa lezione non esiste ancora. Sfoglia il curriculum completo per trovare quello che cerchi.",
   "notfound.back":    "Torna alle lezioni",
   "notfound.browse":  "Vedi curriculum",
+
+  "about.title":           "Chi siamo",
+  "about.headline":        "Creato da sviluppatori, per sviluppatori",
+  "about.mission":         "Next Academy è un corso gratuito e open-source per sviluppatori che vogliono padroneggiare React e Next.js attraverso la pratica — non le slide.",
+  "about.approach.title":  "Il nostro approccio",
+  "about.approach.body":   "Ogni lezione inizia con codice funzionante. Si impara più velocemente leggendo pattern reali, eseguendoli e modificandoli piuttosto che copiare boilerplate da un tutorial.",
+  "about.stack.title":     "Lo stack",
+  "about.stack.body":      "React 19, Next.js 16 App Router, Tailwind CSS v4, MDX, Shiki e Sandpack. Tutto moderno, orientato alle scelte e pronto per la produzione.",
+  "about.open.title":      "Open source",
+  "about.open.body":       "Il contenuto del corso e il codice sorgente sono completamente open source. Hai trovato un bug o vuoi contribuire con una lezione? Apri una PR su GitHub.",
+  "about.cta.lessons":     "Inizia ad imparare",
+  "about.cta.github":      "Vedi su GitHub",
+
+  "theme.toggle_dark":  "Passa alla modalità scura",
+  "theme.toggle_light": "Passa alla modalità chiara",
 
   "footer.rights": "Tutti i diritti riservati."
 }

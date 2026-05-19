@@ -17,10 +17,15 @@
   "curriculum.subtitle": "{count} lições · {hours}h {min}min · {chapters} capítulos",
   "curriculum.lessons":  "lições",
   "curriculum.min":      "min",
+  "curriculum.topics":   "Tópicos",
 
-  "lesson.chapter_badge": "Lição {order} · {duration} min",
-  "lesson.content_soon":  "Conteúdo da lição em breve.",
-  "lesson.playground_note": "Esta lição irá conter conteúdo MDX e um playground interativo com Sandpack.",
+  "chapter.react_fundamentals":  "Fundamentos do React",
+  "chapter.nextjs_essentials":   "Essenciais do Next.js",
+  "chapter.going_to_production": "Rumo à Produção",
+
+  "lesson.chapter_badge":    "Lição {order} · {duration} min",
+  "lesson.content_soon":     "Conteúdo da lição em breve.",
+  "lesson.playground_note":  "Esta lição irá conter conteúdo MDX e um playground interativo com Sandpack.",
   "lesson.prev": "← Anterior",
   "lesson.next": "Próxima →",
 
@@ -29,6 +34,21 @@
   "notfound.body":    "Esta lição ainda não existe. Veja o currículo completo para encontrar o que procuras.",
   "notfound.back":    "Voltar às lições",
   "notfound.browse":  "Ver currículo",
+
+  "about.title":           "Sobre",
+  "about.headline":        "Feito por developers, para developers",
+  "about.mission":         "O Next Academy é um curso gratuito e open-source para developers que querem dominar React e Next.js através da prática — não de slides.",
+  "about.approach.title":  "A nossa abordagem",
+  "about.approach.body":   "Cada lição começa com código a funcionar. Aprendes mais rápido lendo padrões reais, correndo-os e modificando-os do que copiando boilerplate de um tutorial.",
+  "about.stack.title":     "A stack",
+  "about.stack.body":      "React 19, Next.js 16 App Router, Tailwind CSS v4, MDX, Shiki e Sandpack. Tudo moderno, opinionado e pronto para produção.",
+  "about.open.title":      "Open source",
+  "about.open.body":       "O conteúdo do curso e o código-fonte são totalmente open source. Encontraste um bug ou queres contribuir com uma lição? Abre um PR no GitHub.",
+  "about.cta.lessons":     "Começar a aprender",
+  "about.cta.github":      "Ver no GitHub",
+
+  "theme.toggle_dark":  "Mudar para modo escuro",
+  "theme.toggle_light": "Mudar para modo claro",
 
   "footer.rights": "Todos os direitos reservados."
 }
