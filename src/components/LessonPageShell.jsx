@@ -10,9 +10,12 @@ const CHAPTER_KEYS = {
   'Going to Production': 'chapter.going_to_production',
 };
 
-export function LessonPageShell({ lesson, prev, next, children }) {
-  const { t } = useLocale();
+export function LessonPageShell({ lesson, prev, next, contentByLocale }) {
+  const { locale, t } = useLocale();
   const chapterLabel = t(CHAPTER_KEYS[lesson.chapter] ?? lesson.chapter);
+
+  // Pick the locale-specific content, fall back to English, then to null (shows "coming soon")
+  const content = contentByLocale[locale] ?? contentByLocale.en ?? null;
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-16">
@@ -55,9 +58,9 @@ export function LessonPageShell({ lesson, prev, next, children }) {
         </div>
       </header>
 
-      {/* MDX content (RSC children) or fallback */}
+      {/* MDX content — server-rendered RSC element for the active locale */}
       <article className="prose dark:prose-invert max-w-none">
-        {children ?? <p className="text-muted">{t('lesson.content_soon')}</p>}
+        {content ?? <p className="text-muted">{t('lesson.content_soon')}</p>}
       </article>
 
       <LessonNavigation prev={prev} next={next} />

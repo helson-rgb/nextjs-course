@@ -16,6 +16,16 @@ export async function generateMetadata({ params }) {
   };
 }
 
+async function loadMDX(locale, slug) {
+  try {
+    const mod = await import(`@/lessons-mdx/${locale}/${slug}.mdx`);
+    const Content = mod.default;
+    return <Content />;
+  } catch {
+    return null;
+  }
+}
+
 export default async function LessonPage({ params }) {
   const { slug } = await params;
   const lesson = getLessonBySlug(slug);
@@ -24,17 +34,18 @@ export default async function LessonPage({ params }) {
   const prev = getPrevLesson(lesson.slug);
   const next = getNextLesson(lesson.slug);
 
-  let LessonContent;
-  try {
-    const mod = await import(`@/lessons-mdx/${slug}.mdx`);
-    LessonContent = mod.default;
-  } catch {
-    LessonContent = null;
-  }
+  const [contentEN, contentPT, contentIT] = await Promise.all([
+    loadMDX('en', slug),
+    loadMDX('pt', slug),
+    loadMDX('it', slug),
+  ]);
 
   return (
-    <LessonPageShell lesson={lesson} prev={prev} next={next}>
-      {LessonContent ? <LessonContent /> : null}
-    </LessonPageShell>
+    <LessonPageShell
+      lesson={lesson}
+      prev={prev}
+      next={next}
+      contentByLocale={{ en: contentEN, pt: contentPT, it: contentIT }}
+    />
   );
 }
