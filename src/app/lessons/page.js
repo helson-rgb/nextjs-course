@@ -1,21 +1,21 @@
+'use client';
+
 import Link from 'next/link';
 import { getLessonsByChapter } from '@/lib/lessons';
-
-export const metadata = {
-  title: 'Lessons — Next Academy',
-  description: 'All React and Next.js lessons, grouped by chapter.',
-};
+import { useLocale } from '@/lib/i18n/LocaleProvider';
 
 const CHAPTER_ORDER = ['React Fundamentals', 'Next.js Essentials', 'Going to Production'];
 
 export default function LessonsPage() {
   const byChapter = getLessonsByChapter();
+  const { t } = useLocale();
+  const lessonCount = Object.values(byChapter).flat().length;
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-16">
-      <h1 className="font-display text-h1 font-bold text-fg">Lessons</h1>
+      <h1 className="font-display text-h1 font-bold text-fg">{t('lessons.title')}</h1>
       <p className="mt-3 font-body text-body text-muted">
-        {Object.values(byChapter).flat().length} lessons across {CHAPTER_ORDER.length} chapters.
+        {t('lessons.subtitle', { count: lessonCount, chapters: CHAPTER_ORDER.length })}
       </p>
 
       <div className="mt-12 flex flex-col gap-16">
@@ -65,7 +65,7 @@ export default function LessonsPage() {
                           {lesson.durationMin} min
                         </span>
                         <div className="mt-1 font-body text-small font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100">
-                          Start →
+                          {t('lessons.start')}
                         </div>
                       </div>
                     </Link>

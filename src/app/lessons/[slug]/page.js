@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getLessonBySlug, getAllLessons, getNextLesson, getPrevLesson } from '@/lib/lessons';
+import { LessonNavigation } from '@/components/LessonNavigation';
 
 export async function generateStaticParams() {
   return getAllLessons().map((lesson) => ({ slug: lesson.slug }));
@@ -79,35 +80,7 @@ export default async function LessonPage({ params }) {
         )}
       </article>
 
-      {/* Prev / Next navigation */}
-      <nav className="mt-16 grid grid-cols-2 gap-4" aria-label="Lesson navigation">
-        <div>
-          {prev && (
-            <Link
-              href={`/lessons/${prev.slug}`}
-              className="group flex flex-col rounded-lg border border-border p-4 transition-shadow hover:shadow-md"
-            >
-              <span className="font-body text-caption text-muted">← Previous</span>
-              <span className="mt-1 font-body text-small font-semibold text-fg group-hover:text-primary">
-                {prev.title}
-              </span>
-            </Link>
-          )}
-        </div>
-        <div className="flex justify-end">
-          {next && (
-            <Link
-              href={`/lessons/${next.slug}`}
-              className="group flex w-full flex-col rounded-lg border border-border p-4 text-right transition-shadow hover:shadow-md"
-            >
-              <span className="font-body text-caption text-muted">Next →</span>
-              <span className="mt-1 font-body text-small font-semibold text-fg group-hover:text-primary">
-                {next.title}
-              </span>
-            </Link>
-          )}
-        </div>
-      </nav>
+      <LessonNavigation prev={prev} next={next} />
     </div>
   );
 }

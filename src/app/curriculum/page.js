@@ -1,10 +1,8 @@
+'use client';
+
 import Link from 'next/link';
 import { getLessonsByChapter, getAllLessons } from '@/lib/lessons';
-
-export const metadata = {
-  title: 'Curriculum — Next Academy',
-  description: 'Full course curriculum: all chapters and lessons at a glance.',
-};
+import { useLocale } from '@/lib/i18n/LocaleProvider';
 
 const CHAPTER_ORDER = ['React Fundamentals', 'Next.js Essentials', 'Going to Production'];
 
@@ -12,14 +10,18 @@ export default function CurriculumPage() {
   const byChapter = getLessonsByChapter();
   const total = getAllLessons().length;
   const totalMin = getAllLessons().reduce((sum, l) => sum + l.durationMin, 0);
+  const { t } = useLocale();
 
   return (
     <div className="mx-auto max-w-5xl px-6 py-16">
-      {/* Page header */}
-      <h1 className="font-display text-h1 font-bold text-fg">Curriculum</h1>
+      <h1 className="font-display text-h1 font-bold text-fg">{t('curriculum.title')}</h1>
       <p className="mt-3 font-body text-body text-muted">
-        {total} lessons · {Math.round(totalMin / 60)} h {totalMin % 60} min of content ·{' '}
-        {CHAPTER_ORDER.length} chapters
+        {t('curriculum.subtitle', {
+          count: total,
+          hours: Math.round(totalMin / 60),
+          min: totalMin % 60,
+          chapters: CHAPTER_ORDER.length,
+        })}
       </p>
 
       <div className="mt-12 flex flex-col gap-12">
@@ -29,7 +31,6 @@ export default function CurriculumPage() {
 
           return (
             <section key={chapter}>
-              {/* Chapter heading */}
               <div className="mb-1 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary font-body text-caption font-semibold text-primary-fg">
@@ -38,21 +39,24 @@ export default function CurriculumPage() {
                   <h2 className="font-display text-h3 font-bold text-fg">{chapter}</h2>
                 </div>
                 <span className="font-body text-caption text-muted">
-                  {lessons.length} lessons · {chapterMin} min
+                  {lessons.length} {t('curriculum.lessons')} · {chapterMin} {t('curriculum.min')}
                 </span>
               </div>
 
-              {/* Lessons table */}
               <div className="mt-4 overflow-hidden rounded-lg border border-border">
                 <table className="w-full font-body text-small">
                   <thead>
                     <tr className="border-b border-border bg-neutral-100">
                       <th className="px-4 py-3 text-left font-semibold text-muted">#</th>
-                      <th className="px-4 py-3 text-left font-semibold text-muted">Lesson</th>
+                      <th className="px-4 py-3 text-left font-semibold text-muted">
+                        {t('nav.lessons')}
+                      </th>
                       <th className="hidden px-4 py-3 text-left font-semibold text-muted md:table-cell">
                         Topics
                       </th>
-                      <th className="px-4 py-3 text-right font-semibold text-muted">Duration</th>
+                      <th className="px-4 py-3 text-right font-semibold text-muted">
+                        {t('curriculum.min')}
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -89,7 +93,9 @@ export default function CurriculumPage() {
                             ))}
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-right text-muted">{lesson.durationMin} min</td>
+                        <td className="px-4 py-3 text-right text-muted">
+                          {lesson.durationMin} {t('curriculum.min')}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

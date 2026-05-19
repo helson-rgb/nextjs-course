@@ -2,6 +2,7 @@ import { Plus_Jakarta_Sans, Inter } from 'next/font/google';
 import './globals.css';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
+import { LocaleProvider } from '@/lib/i18n/LocaleProvider';
 
 const display = Plus_Jakarta_Sans({
   subsets: ['latin'],
@@ -26,9 +27,11 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en" className={`${display.variable} ${body.variable} h-full antialiased`}>
       <body className="flex min-h-full flex-col bg-bg text-fg">
-        <Header />
-        <main className="flex-1">{children}</main>
-        <Footer />
+        <LocaleProvider>
+          <Header />
+          <main className="flex-1">{children}</main>
+          <Footer />
+        </LocaleProvider>
       </body>
     </html>
   );
