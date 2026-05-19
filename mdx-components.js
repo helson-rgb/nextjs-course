@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { CodeBlock } from '@/components/CodeBlock';
 import { Playground } from '@/components/Playground';
+import { Callout } from '@/components/Callout';
 
 // Required by @next/mdx for App Router — maps HTML elements to custom components.
 export function useMDXComponents(components) {
@@ -24,6 +25,11 @@ export function useMDXComponents(components) {
         {children}
       </h3>
     ),
+    h4: ({ children, id }) => (
+      <h4 id={id} className="font-display">
+        {children}
+      </h4>
+    ),
 
     // Internal links via Next.js Link
     a: ({ href, children, ...props }) => (
@@ -34,6 +40,7 @@ export function useMDXComponents(components) {
 
     // Named MDX components available in every .mdx file without importing
     Playground,
+    Callout,
 
     ...components,
   };
