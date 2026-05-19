@@ -5,6 +5,11 @@ import { getLessonsByChapter } from '@/lib/lessons';
 import { useLocale } from '@/lib/i18n/LocaleProvider';
 
 const CHAPTER_ORDER = ['React Fundamentals', 'Next.js Essentials', 'Going to Production'];
+const CHAPTER_KEYS = {
+  'React Fundamentals': 'chapter.react_fundamentals',
+  'Next.js Essentials': 'chapter.nextjs_essentials',
+  'Going to Production': 'chapter.going_to_production',
+};
 
 export default function LessonsPage() {
   const byChapter = getLessonsByChapter();
@@ -27,7 +32,9 @@ export default function LessonsPage() {
                 <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary font-body text-caption font-semibold text-primary-fg">
                   {chapterIdx + 1}
                 </span>
-                <h2 className="font-display text-h2 font-bold text-fg">{chapter}</h2>
+                <h2 className="font-display text-h2 font-bold text-fg">
+                  {t(CHAPTER_KEYS[chapter])}
+                </h2>
               </div>
 
               <ol className="flex flex-col gap-3">
@@ -62,7 +69,7 @@ export default function LessonsPage() {
                       </div>
                       <div className="ml-4 shrink-0 text-right">
                         <span className="font-body text-caption text-muted">
-                          {lesson.durationMin} min
+                          {lesson.durationMin} {t('curriculum.min')}
                         </span>
                         <div className="mt-1 font-body text-small font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100">
                           {t('lessons.start')}

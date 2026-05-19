@@ -5,6 +5,11 @@ import { getLessonsByChapter, getAllLessons } from '@/lib/lessons';
 import { useLocale } from '@/lib/i18n/LocaleProvider';
 
 const CHAPTER_ORDER = ['React Fundamentals', 'Next.js Essentials', 'Going to Production'];
+const CHAPTER_KEYS = {
+  'React Fundamentals': 'chapter.react_fundamentals',
+  'Next.js Essentials': 'chapter.nextjs_essentials',
+  'Going to Production': 'chapter.going_to_production',
+};
 
 export default function CurriculumPage() {
   const byChapter = getLessonsByChapter();
@@ -36,7 +41,9 @@ export default function CurriculumPage() {
                   <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary font-body text-caption font-semibold text-primary-fg">
                     {chapterIdx + 1}
                   </span>
-                  <h2 className="font-display text-h3 font-bold text-fg">{chapter}</h2>
+                  <h2 className="font-display text-h3 font-bold text-fg">
+                    {t(CHAPTER_KEYS[chapter])}
+                  </h2>
                 </div>
                 <span className="font-body text-caption text-muted">
                   {lessons.length} {t('curriculum.lessons')} · {chapterMin} {t('curriculum.min')}
@@ -52,7 +59,7 @@ export default function CurriculumPage() {
                         {t('nav.lessons')}
                       </th>
                       <th className="hidden px-4 py-3 text-left font-semibold text-muted md:table-cell">
-                        Topics
+                        {t('curriculum.topics')}
                       </th>
                       <th className="px-4 py-3 text-right font-semibold text-muted">
                         {t('curriculum.min')}
