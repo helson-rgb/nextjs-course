@@ -1,5 +1,6 @@
 @import "../styles/tokens.css";
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 
 /* Dark mode via data-theme attribute (toggled by JS) or system preference */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));

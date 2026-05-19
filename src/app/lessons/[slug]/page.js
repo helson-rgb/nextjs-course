@@ -24,6 +24,15 @@ export default async function LessonPage({ params }) {
   const prev = getPrevLesson(lesson.slug);
   const next = getNextLesson(lesson.slug);
 
+  // Dynamic import — webpack bundles all src/lessons-mdx/*.mdx at build time.
+  let LessonContent;
+  try {
+    const mod = await import(`@/lessons-mdx/${slug}.mdx`);
+    LessonContent = mod.default;
+  } catch {
+    LessonContent = null;
+  }
+
   return (
     <div className="mx-auto max-w-5xl px-6 py-16">
       {/* Breadcrumb */}
@@ -61,16 +70,17 @@ export default async function LessonPage({ params }) {
         </div>
       </header>
 
-      {/* Content placeholder */}
-      <article className="min-h-96 rounded-lg border border-border bg-neutral-100 p-10 text-center">
-        <p className="font-body text-body text-muted">Lesson content coming soon.</p>
-        <p className="mt-2 font-body text-caption text-muted">
-          This lesson will contain MDX content and an interactive Sandpack playground.
-        </p>
+      {/* MDX content */}
+      <article className="prose dark:prose-invert max-w-none">
+        {LessonContent ? (
+          <LessonContent />
+        ) : (
+          <p className="text-muted">Lesson content coming soon.</p>
+        )}
       </article>
 
       {/* Prev / Next navigation */}
-      <nav className="mt-12 grid grid-cols-2 gap-4" aria-label="Lesson navigation">
+      <nav className="mt-16 grid grid-cols-2 gap-4" aria-label="Lesson navigation">
         <div>
           {prev && (
             <Link
