@@ -1,60 +1,295 @@
 # JSX & Rendering
 
-JSX is a syntax extension for JavaScript. It lets you write markup that looks like HTML directly inside a `.js` file — no string concatenation, no template literals. Babel (or the Next.js compiler) transforms it into `React.createElement()` calls at build time.
+JSX is a syntax extension that lets you write markup inside JavaScript files. It looks like HTML — but it is not HTML. Under the hood, every JSX expression compiles to a plain `React.createElement()` call before the browser ever runs your code.
 
 ## What JSX compiles to
 
-This JSX:
+The Next.js compiler transforms your JSX at build time. This JSX:
 
 ```jsx
 const el = <h1 className="title">Hello world</h1>;
 ```
 
-Compiles to:
+Is identical at runtime to this JavaScript:
 
 ```js
 const el = React.createElement('h1', { className: 'title' }, 'Hello world');
 ```
 
-You never write that by hand — JSX exists so you don't have to.
+`React.createElement(type, props, ...children)` returns a plain JavaScript object — a **React element** — that describes what should appear on screen. You never write it by hand; JSX is the shorthand that makes it readable.
 
-## Expressions inside JSX
-
-Wrap any JavaScript expression in `{}` to embed it inside markup:
+Nesting works the same way:
 
 ```jsx
-const name = 'Next Academy';
-const el = <h1>Hello {name}</h1>;
-// → <h1>Hello Next Academy</h1>
+// What you write:
+const card = (
+  <div className="card">
+    <h2>Title</h2>
+    <p>Body.</p>
+  </div>
+);
+
+// What the compiler produces:
+const card = React.createElement(
+  'div',
+  { className: 'card' },
+  React.createElement('h2', null, 'Title'),
+  React.createElement('p', null, 'Body.')
+);
 ```
 
-The expression inside `{}` must produce a value: a string, number, or another JSX element. Statements (loops, `if`) don't work — use ternaries or `&&` instead.
+Each level of nesting becomes a nested `React.createElement` call. The resulting tree of objects is the **virtual DOM**.
 
-## Try it live
+## Expressions, attributes, and fragments
 
-Edit the `name` variable below and watch the preview update instantly.
+### Embedding expressions
+
+Wrap any JavaScript **expression** in `{}` to embed it inside markup:
+
+```jsx
+const user = { name: 'Alice', score: 42 };
+
+return (
+  <p>
+    {user.name} scored {user.score} points.
+  </p>
+);
+```
+
+The value inside `{}` can be a string, number, array, or any expression that produces a value. **Statements** — `if`, `for`, `while` — do not produce values. Use a ternary or `&&` instead:
+
+```jsx
+// ternary: one branch or the other
+{isLoggedIn ? <Dashboard /> : <Login />}
+
+// short-circuit: render only when true
+{hasError && <ErrorBanner message={error.message} />}
+```
+
+### Attribute differences
+
+JSX attributes follow JavaScript naming rules, not HTML rules. The two differences you will encounter in every project:
+
+| HTML | JSX | Reason |
+|---|---|---|
+| `class="btn"` | `className="btn"` | `class` is a JS reserved word |
+| `for="email"` | `htmlFor="email"` | `for` is a JS reserved word |
+| `<br>` | `<br />` | Every tag must close |
+| `<input>` | `<input />` | Every tag must close |
+
+All other common attributes — `id`, `href`, `src`, `style`, `aria-*`, `data-*` — are spelled identically to HTML.
+
+<Callout type="warn">
+Passing `class` instead of `className` does not throw an error in JSX — it silently writes the wrong attribute to the DOM, no CSS is applied, and the bug can be invisible until you open DevTools. Playground 2 below will show you this first-hand.
+</Callout>
+
+### Self-closing tags
+
+In JSX, **every tag must close** — either with a matching closing tag or a self-closing slash before the `>`:
+
+```jsx
+<img src="/logo.svg" alt="Next Academy" />
+<input type="email" name="email" />
+<hr />
+<br />
+```
+
+### Fragments and the single-root rule
+
+A component can only return **one root element**. This fails:
+
+```jsx
+// SyntaxError: Adjacent JSX elements must be wrapped in an enclosing tag.
+return (
+  <h1>Title</h1>
+  <p>Subtitle</p>
+);
+```
+
+The obvious fix is a wrapper `<div>` — but that adds a meaningless node to the DOM and can break layouts (especially in tables and flex/grid containers). **Fragments** group elements without adding anything to the real DOM:
+
+```jsx
+return (
+  <>
+    <h1>Title</h1>
+    <p>Subtitle</p>
+  </>
+);
+```
+
+`<>...</>` is shorthand for `<React.Fragment>...</React.Fragment>`. Use the named form when you need to pass a `key` prop (e.g. inside a `.map()`):
+
+```jsx
+items.map((item) => (
+  <React.Fragment key={item.id}>
+    <dt>{item.term}</dt>
+    <dd>{item.definition}</dd>
+  </React.Fragment>
+));
+```
+
+## From JSX to real DOM
+
+When your component returns JSX, React builds a **virtual DOM** — a lightweight tree of plain JavaScript objects that mirrors the shape of the UI you described.
+
+On the first render, React converts this tree into real DOM nodes. On every subsequent render, it **diffs** the new virtual tree against the previous one and applies only the minimal set of changes — a process called **reconciliation**.
+
+```
+Your JSX
+  ↓ compiler
+React.createElement calls
+  ↓ render
+Virtual DOM object tree
+  ↓ reconciliation diff
+Minimal real DOM patches
+```
+
+You never call `document.createElement` directly. You describe the UI you want; React figures out the cheapest sequence of DOM operations to match it.
+
+<Callout type="info">
+The full reconciliation algorithm — including how React decides when to reuse vs. destroy a DOM node — is covered in Lesson 4, where stable `key` props become critical. For now the mental model is: React keeps a fast in-memory copy and syncs the real DOM as cheaply as possible.
+</Callout>
+
+---
+
+## Playground 1 — Hello World
+
+Edit `name` or add entries to the `greetings` array. Each item becomes a `<li>` in the rendered list — JSX handles the array mapping through `{}`.
 
 <Playground
   files={{
-    '/App.js': `export default function App() {
+    '/App.js': `const greetings = ['Hello', 'Olá', 'Ciao', 'Hola', 'Bonjour'];
+
+export default function App() {
   const name = 'Next Academy';
+
   return (
     <div style={{ fontFamily: 'sans-serif', padding: '2rem' }}>
-      <h1>Hello {name}!</h1>
-      <p>Change the name variable and see it update live.</p>
+      <h2>Greetings from JSX</h2>
+      <ul>
+        {greetings.map((word) => (
+          <li key={word}>
+            {word}, {name}!
+          </li>
+        ))}
+      </ul>
+      <p style={{ color: '#888', marginTop: '1rem', fontSize: '0.875rem' }}>
+        Try: change the name, add a greeting, or render the count.
+      </p>
     </div>
   );
 }`,
   }}
 />
 
-## Rules of JSX
+## Playground 2 — Spot and fix the JSX mistakes
 
-1. **Return a single root element.** Wrap siblings in a `<div>` or the `<>` Fragment shorthand.
-2. **Close every tag.** Self-closing tags need a slash: `<img />`, `<br />`.
-3. **Use `className`, not `class`.** JSX maps to JavaScript objects — `class` is a reserved word.
-4. **camelCase event handlers.** `onclick` → `onClick`, `onchange` → `onChange`.
+The component below compiles without crashing but renders incorrectly. There are **three JSX mistakes**. Find and fix them — the purple card border will appear once you correct the first one.
 
-## Key takeaway
+<Playground
+  files={{
+    '/App.js': `import './styles.css';
 
-JSX is syntactic sugar. Understanding what it compiles to helps you debug "expected expression" errors and understand why returning two elements without a wrapper fails.
+export default function App() {
+  return (
+    <div class="card">
+      <label for="username">Username</label>
+      <input type="text" id="username" placeholder="Type here">
+      <p>Three mistakes above — fix them to make the card border appear.</p>
+    </div>
+  );
+}`,
+    '/styles.css': `.card {
+  border: 3px solid rebeccapurple;
+  border-radius: 8px;
+  padding: 1.5rem;
+  max-width: 360px;
+  font-family: sans-serif;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+label {
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+input {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 1rem;
+}`,
+  }}
+  activeFile="/App.js"
+/>
+
+<Callout type="info">
+The three fixes: `class` → `className` (the purple border appears once this is correct), `for` → `htmlFor` (repairs the accessibility link between label and input), `<input ...>` → `<input ... />` (self-closing). Verify in DevTools that the DOM attribute now reads `class` correctly on the element.
+</Callout>
+
+## Playground 3 — Fragments in a table
+
+Each `<Row>` returns two `<td>` cells without a wrapper element. Open `Row.js`, replace `<>...</>` with `<div>...</div>`, and watch the table layout break — that is exactly why Fragments exist.
+
+<Playground
+  files={{
+    '/App.js': `import { Row } from './Row';
+
+const data = [
+  { concept: 'Your JSX',       result: 'React.createElement calls' },
+  { concept: 'Virtual DOM',    result: 'Plain JS object tree'       },
+  { concept: 'Reconciliation', result: 'Minimal DOM patches'        },
+];
+
+export default function App() {
+  return (
+    <table style={{ fontFamily: 'sans-serif', borderCollapse: 'collapse', width: '100%' }}>
+      <thead>
+        <tr style={{ borderBottom: '2px solid #ccc' }}>
+          <th style={{ textAlign: 'left', padding: '0.5rem 1rem' }}>Concept</th>
+          <th style={{ textAlign: 'left', padding: '0.5rem 1rem' }}>Result</th>
+        </tr>
+      </thead>
+      <tbody>
+        {data.map((row) => (
+          <tr key={row.concept} style={{ borderBottom: '1px solid #eee' }}>
+            <Row concept={row.concept} result={row.result} />
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}`,
+    '/Row.js': `export function Row({ concept, result }) {
+  // Replace <> and </> with <div> and </div> — the table will break.
+  // A <div> inside a <tr> is invalid HTML; a Fragment adds nothing to the DOM.
+  return (
+    <>
+      <td style={{ padding: '0.5rem 1rem', fontWeight: 600 }}>{concept}</td>
+      <td style={{ padding: '0.5rem 1rem', color: 'rebeccapurple' }}>{result}</td>
+    </>
+  );
+}`,
+  }}
+  activeFile="/Row.js"
+/>
+
+---
+
+## Key takeaways
+
+<Callout type="tip">
+**JSX is syntactic sugar for `React.createElement`.** Every angle-bracket expression compiles to a plain function call that returns a JavaScript object. Understanding this makes JSX errors obvious and debugging straightforward.
+
+**Three attribute rules:** `className` not `class`, `htmlFor` not `for`, and every tag must close with `/>` or a matching closing tag. These produce silent failures — not errors — which makes them easy to miss.
+
+**One root, always — use Fragments.** `<>...</>` groups siblings without adding DOM nodes. It is essential in tables, lists, and flex/grid containers where an extra `<div>` wrapper breaks the layout.
+
+**You describe; React decides.** The virtual DOM and reconciliation algorithm apply only the necessary DOM patches. You never touch `document` directly — that is the abstraction JSX and React give you.
+</Callout>
+
+---
+
+**References:** [Writing Markup with JSX](https://react.dev/learn/writing-markup-with-jsx) · [React.createElement](https://react.dev/reference/react/createElement)
