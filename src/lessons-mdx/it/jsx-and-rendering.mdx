@@ -1,0 +1,60 @@
+# JSX e Rendering
+
+JSX è un'estensione sintattica per JavaScript. Permette di scrivere markup che sembra HTML direttamente all'interno di un file `.js` — senza concatenazione di stringhe, senza template literal. Babel (o il compilatore di Next.js) lo trasforma in chiamate `React.createElement()` in fase di build.
+
+## Cosa compila JSX
+
+Questo JSX:
+
+```jsx
+const el = <h1 className="title">Hello world</h1>;
+```
+
+Compila in:
+
+```js
+const el = React.createElement('h1', { className: 'title' }, 'Hello world');
+```
+
+Non lo scrivi mai a mano — JSX esiste proprio per evitarlo.
+
+## Espressioni dentro JSX
+
+Racchiudi qualsiasi espressione JavaScript in `{}` per incorporarla nel markup:
+
+```jsx
+const name = 'Next Academy';
+const el = <h1>Hello {name}</h1>;
+// → <h1>Hello Next Academy</h1>
+```
+
+L'espressione dentro `{}` deve produrre un valore: una stringa, un numero o un altro elemento JSX. Gli statement (loop, `if`) non funzionano — usa i ternari o `&&`.
+
+## Prova dal vivo
+
+Modifica la variabile `name` qui sotto e guarda il preview aggiornarsi istantaneamente.
+
+<Playground
+  files={{
+    '/App.js': `export default function App() {
+  const name = 'Next Academy';
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem' }}>
+      <h1>Ciao {name}!</h1>
+      <p>Modifica la variabile name e osserva l'aggiornamento in tempo reale.</p>
+    </div>
+  );
+}`,
+  }}
+/>
+
+## Regole di JSX
+
+1. **Restituisci un singolo elemento radice.** Avvolgi i figli in un `<div>` o nella shorthand Fragment `<>`.
+2. **Chiudi tutti i tag.** I tag self-closing richiedono uno slash: `<img />`, `<br />`.
+3. **Usa `className`, non `class`.** JSX si mappa su oggetti JavaScript — `class` è una parola riservata.
+4. **camelCase per gli event handler.** `onclick` → `onClick`, `onchange` → `onChange`.
+
+## Conclusione principale
+
+JSX è zucchero sintattico. Capire cosa compila aiuta a fare debug di errori "expected expression" e a capire perché restituire due elementi senza un wrapper fallisce.
