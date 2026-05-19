@@ -44,6 +44,15 @@
   --shadow-sm: var(--shadow-sm);
   --shadow-md: var(--shadow-md);
   --shadow-lg: var(--shadow-lg);
+
+  /* Type scale */
+  --text-h1:      3rem;
+  --text-h2:      2rem;
+  --text-h3:      1.5rem;
+  --text-h4:      1.25rem;
+  --text-body:    1rem;
+  --text-small:   0.875rem;
+  --text-caption: 0.75rem;
 }
 
 body {
