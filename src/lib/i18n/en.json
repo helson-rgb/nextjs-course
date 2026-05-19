@@ -23,29 +23,77 @@
   "chapter.nextjs_essentials":   "Next.js Essentials",
   "chapter.going_to_production": "Going to Production",
 
-  "lesson.chapter_badge":    "Lesson {order} · {duration} min",
-  "lesson.content_soon":     "Lesson content coming soon.",
-  "lesson.playground_note":  "This lesson will contain MDX content and an interactive Sandpack playground.",
+  "lesson.chapter_badge":   "Lesson {order} · {duration} min",
+  "lesson.content_soon":    "Lesson content coming soon.",
+  "lesson.playground_note": "This lesson will contain MDX content and an interactive Sandpack playground.",
   "lesson.prev": "← Previous",
   "lesson.next": "Next →",
 
-  "notfound.code":    "404",
-  "notfound.title":   "Lesson not found",
-  "notfound.body":    "This lesson doesn't exist yet. Browse the full curriculum to find what you're looking for.",
-  "notfound.back":    "Back to lessons",
-  "notfound.browse":  "Browse curriculum",
+  "lesson.jsx-and-rendering.title":   "JSX & Rendering",
+  "lesson.jsx-and-rendering.summary": "Learn how JSX extends JavaScript to describe UI, how Babel transforms it, and how React reconciles the virtual DOM with the real one.",
 
-  "about.title":           "About",
-  "about.headline":        "Built by developers, for developers",
-  "about.mission":         "Next Academy is a free, open-source course for developers who want to master React and Next.js through hands-on practice — not slides.",
-  "about.approach.title":  "Our approach",
-  "about.approach.body":   "Every lesson starts with working code. You learn faster by reading real patterns, running them, and modifying them than by copying boilerplate from a tutorial.",
-  "about.stack.title":     "The stack",
-  "about.stack.body":      "React 19, Next.js 16 App Router, Tailwind CSS v4, MDX, Shiki, and Sandpack. Everything is modern, opinionated, and production-ready.",
-  "about.open.title":      "Open source",
-  "about.open.body":       "The course content and source code are fully open source. Found a bug or want to contribute a lesson? Open a PR on GitHub.",
-  "about.cta.lessons":     "Start learning",
-  "about.cta.github":      "View on GitHub",
+  "lesson.components-and-props.title":   "Components & Props",
+  "lesson.components-and-props.summary": "Build your first reusable components, pass data down with props, and understand the one-way data flow that makes React predictable.",
+
+  "lesson.state-and-events.title":   "State & Events",
+  "lesson.state-and-events.summary": "Manage local state with useState, wire up event handlers, and see how state changes trigger re-renders without you doing anything extra.",
+
+  "lesson.lists-and-keys.title":   "Lists & Keys",
+  "lesson.lists-and-keys.summary": "Render dynamic arrays of data, avoid reconciliation bugs by providing stable keys, and filter or sort lists reactively.",
+
+  "lesson.forms-and-controlled-inputs.title":   "Forms & Controlled Inputs",
+  "lesson.forms-and-controlled-inputs.summary": "Build controlled form components where React owns the input value, handle validation, and submit data without a full-page reload.",
+
+  "lesson.side-effects-and-useeffect.title":   "Side Effects & useEffect",
+  "lesson.side-effects-and-useeffect.summary": "Run code after render, fetch data on mount, subscribe to external systems, and clean up properly to avoid memory leaks.",
+
+  "lesson.context-and-prop-drilling.title":   "Context & Prop Drilling",
+  "lesson.context-and-prop-drilling.summary": "Identify when prop drilling becomes painful, lift shared state into React Context, and consume it anywhere in the tree without threading props.",
+
+  "lesson.app-router-basics.title":   "App Router Basics",
+  "lesson.app-router-basics.summary": "Understand file-based routing in the App Router: folders are routes, page.js renders the UI, and layout.js wraps every child — no config needed.",
+
+  "lesson.layouts-and-templates.title":   "Layouts & Templates",
+  "lesson.layouts-and-templates.summary": "Share persistent UI across routes with layout.js, reset state between navigations with template.js, and nest layouts for complex shells.",
+
+  "lesson.server-vs-client-components.title":   "Server vs Client Components",
+  "lesson.server-vs-client-components.summary": "Learn the React Server Component model: what runs on the server, what runs in the browser, and how to draw the boundary with \"use client\".",
+
+  "lesson.data-fetching-patterns.title":   "Data Fetching Patterns",
+  "lesson.data-fetching-patterns.summary": "Fetch data directly in async Server Components, understand Next.js fetch caching, and choose between static, dynamic, and incremental rendering.",
+
+  "lesson.dynamic-routes.title":   "Dynamic Routes",
+  "lesson.dynamic-routes.summary": "Create [slug] segments, generate static params at build time with generateStaticParams, and handle catch-all and optional catch-all routes.",
+
+  "lesson.route-handlers.title":   "Route Handlers",
+  "lesson.route-handlers.summary": "Build JSON API endpoints with route.js, handle GET/POST/PATCH/DELETE, read request bodies, and return typed Response objects.",
+
+  "lesson.metadata-and-seo.title":   "Metadata & SEO",
+  "lesson.metadata-and-seo.summary": "Export a static metadata object or a generateMetadata function, set Open Graph tags, and verify your pages in the browser head.",
+
+  "lesson.loading-and-error-states.title":   "Loading & Error States",
+  "lesson.loading-and-error-states.summary": "Add instant loading skeletons with loading.js, catch runtime errors with error.js, and compose Suspense boundaries for granular streaming.",
+
+  "lesson.deploy-and-optimize.title":   "Deploy & Optimize",
+  "lesson.deploy-and-optimize.summary": "Push to Vercel, read the build output, set environment variables, enable image optimization, and run Lighthouse to measure real-world performance.",
+
+  "notfound.code":   "404",
+  "notfound.title":  "Lesson not found",
+  "notfound.body":   "This lesson doesn't exist yet. Browse the full curriculum to find what you're looking for.",
+  "notfound.back":   "Back to lessons",
+  "notfound.browse": "Browse curriculum",
+
+  "about.title":          "About",
+  "about.headline":       "Built by developers, for developers",
+  "about.mission":        "Next Academy is a free, open-source course for developers who want to master React and Next.js through hands-on practice — not slides.",
+  "about.approach.title": "Our approach",
+  "about.approach.body":  "Every lesson starts with working code. You learn faster by reading real patterns, running them, and modifying them than by copying boilerplate from a tutorial.",
+  "about.stack.title":    "The stack",
+  "about.stack.body":     "React 19, Next.js 16 App Router, Tailwind CSS v4, MDX, Shiki, and Sandpack. Everything is modern, opinionated, and production-ready.",
+  "about.open.title":     "Open source",
+  "about.open.body":      "The course content and source code are fully open source. Found a bug or want to contribute a lesson? Open a PR on GitHub.",
+  "about.cta.lessons":    "Start learning",
+  "about.cta.github":     "View on GitHub",
 
   "theme.toggle_dark":  "Switch to dark mode",
   "theme.toggle_light": "Switch to light mode",

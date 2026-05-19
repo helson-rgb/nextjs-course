@@ -23,29 +23,77 @@
   "chapter.nextjs_essentials":   "Essenciais do Next.js",
   "chapter.going_to_production": "Rumo à Produção",
 
-  "lesson.chapter_badge":    "Lição {order} · {duration} min",
-  "lesson.content_soon":     "Conteúdo da lição em breve.",
-  "lesson.playground_note":  "Esta lição irá conter conteúdo MDX e um playground interativo com Sandpack.",
+  "lesson.chapter_badge":   "Lição {order} · {duration} min",
+  "lesson.content_soon":    "Conteúdo da lição em breve.",
+  "lesson.playground_note": "Esta lição irá conter conteúdo MDX e um playground interativo com Sandpack.",
   "lesson.prev": "← Anterior",
   "lesson.next": "Próxima →",
 
-  "notfound.code":    "404",
-  "notfound.title":   "Lição não encontrada",
-  "notfound.body":    "Esta lição ainda não existe. Veja o currículo completo para encontrar o que procuras.",
-  "notfound.back":    "Voltar às lições",
-  "notfound.browse":  "Ver currículo",
+  "lesson.jsx-and-rendering.title":   "JSX e Renderização",
+  "lesson.jsx-and-rendering.summary": "Aprende como o JSX estende o JavaScript para descrever a UI, como o Babel o transforma e como o React reconcilia o DOM virtual com o real.",
 
-  "about.title":           "Sobre",
-  "about.headline":        "Feito por developers, para developers",
-  "about.mission":         "O Next Academy é um curso gratuito e open-source para developers que querem dominar React e Next.js através da prática — não de slides.",
-  "about.approach.title":  "A nossa abordagem",
-  "about.approach.body":   "Cada lição começa com código a funcionar. Aprendes mais rápido lendo padrões reais, correndo-os e modificando-os do que copiando boilerplate de um tutorial.",
-  "about.stack.title":     "A stack",
-  "about.stack.body":      "React 19, Next.js 16 App Router, Tailwind CSS v4, MDX, Shiki e Sandpack. Tudo moderno, opinionado e pronto para produção.",
-  "about.open.title":      "Open source",
-  "about.open.body":       "O conteúdo do curso e o código-fonte são totalmente open source. Encontraste um bug ou queres contribuir com uma lição? Abre um PR no GitHub.",
-  "about.cta.lessons":     "Começar a aprender",
-  "about.cta.github":      "Ver no GitHub",
+  "lesson.components-and-props.title":   "Componentes e Props",
+  "lesson.components-and-props.summary": "Constrói os teus primeiros componentes reutilizáveis, passa dados com props e entende o fluxo de dados unidirecional que torna o React previsível.",
+
+  "lesson.state-and-events.title":   "Estado e Eventos",
+  "lesson.state-and-events.summary": "Gere o estado local com useState, liga event handlers e vê como as mudanças de estado desencadeiam re-renders sem precisares de fazer nada extra.",
+
+  "lesson.lists-and-keys.title":   "Listas e Keys",
+  "lesson.lists-and-keys.summary": "Renderiza arrays dinâmicos de dados, evita bugs de reconciliação com keys estáveis e filtra ou ordena listas de forma reativa.",
+
+  "lesson.forms-and-controlled-inputs.title":   "Formulários e Inputs Controlados",
+  "lesson.forms-and-controlled-inputs.summary": "Constrói componentes de formulário controlados onde o React gere o valor do input, trata validação e envia dados sem recarregar a página.",
+
+  "lesson.side-effects-and-useeffect.title":   "Efeitos Secundários e useEffect",
+  "lesson.side-effects-and-useeffect.summary": "Executa código após o render, vai buscar dados no mount, subscreve a sistemas externos e faz a limpeza corretamente para evitar fugas de memória.",
+
+  "lesson.context-and-prop-drilling.title":   "Context e Prop Drilling",
+  "lesson.context-and-prop-drilling.summary": "Identifica quando o prop drilling se torna problemático, eleva o estado partilhado para um React Context e consome-o em qualquer ponto da árvore.",
+
+  "lesson.app-router-basics.title":   "Noções Básicas do App Router",
+  "lesson.app-router-basics.summary": "Compreende o routing baseado em ficheiros no App Router: as pastas são rotas, page.js renderiza a UI e layout.js envolve todos os filhos — sem configuração.",
+
+  "lesson.layouts-and-templates.title":   "Layouts e Templates",
+  "lesson.layouts-and-templates.summary": "Partilha UI persistente entre rotas com layout.js, reinicia o estado entre navegações com template.js e aninha layouts para shells complexas.",
+
+  "lesson.server-vs-client-components.title":   "Componentes de Servidor vs Cliente",
+  "lesson.server-vs-client-components.summary": "Aprende o modelo React Server Component: o que corre no servidor, o que corre no browser e como definir a fronteira com 'use client'.",
+
+  "lesson.data-fetching-patterns.title":   "Padrões de Busca de Dados",
+  "lesson.data-fetching-patterns.summary": "Vai buscar dados diretamente em Server Components assíncronos, entende o cache de fetch do Next.js e escolhe entre renderização estática, dinâmica e incremental.",
+
+  "lesson.dynamic-routes.title":   "Rotas Dinâmicas",
+  "lesson.dynamic-routes.summary": "Cria segmentos [slug], gera parâmetros estáticos em tempo de build com generateStaticParams e trata rotas catch-all e catch-all opcionais.",
+
+  "lesson.route-handlers.title":   "Route Handlers",
+  "lesson.route-handlers.summary": "Constrói endpoints JSON com route.js, trata GET/POST/PATCH/DELETE, lê corpos de pedido e devolve objetos Response tipados.",
+
+  "lesson.metadata-and-seo.title":   "Metadata e SEO",
+  "lesson.metadata-and-seo.summary": "Exporta um objeto metadata estático ou uma função generateMetadata, define tags Open Graph e verifica as tuas páginas no head do browser.",
+
+  "lesson.loading-and-error-states.title":   "Estados de Carregamento e Erro",
+  "lesson.loading-and-error-states.summary": "Adiciona skeletons de carregamento instantâneos com loading.js, apanha erros em runtime com error.js e compõe Suspense boundaries para streaming granular.",
+
+  "lesson.deploy-and-optimize.title":   "Deploy e Otimização",
+  "lesson.deploy-and-optimize.summary": "Publica no Vercel, analisa o output do build, define variáveis de ambiente, ativa a otimização de imagens e corre o Lighthouse para medir a performance real.",
+
+  "notfound.code":   "404",
+  "notfound.title":  "Lição não encontrada",
+  "notfound.body":   "Esta lição ainda não existe. Veja o currículo completo para encontrar o que procuras.",
+  "notfound.back":   "Voltar às lições",
+  "notfound.browse": "Ver currículo",
+
+  "about.title":          "Sobre",
+  "about.headline":       "Feito por developers, para developers",
+  "about.mission":        "O Next Academy é um curso gratuito e open-source para developers que querem dominar React e Next.js através da prática — não de slides.",
+  "about.approach.title": "A nossa abordagem",
+  "about.approach.body":  "Cada lição começa com código a funcionar. Aprendes mais rápido lendo padrões reais, correndo-os e modificando-os do que copiando boilerplate de um tutorial.",
+  "about.stack.title":    "A stack",
+  "about.stack.body":     "React 19, Next.js 16 App Router, Tailwind CSS v4, MDX, Shiki e Sandpack. Tudo moderno, opinionado e pronto para produção.",
+  "about.open.title":     "Open source",
+  "about.open.body":      "O conteúdo do curso e o código-fonte são totalmente open source. Encontraste um bug ou queres contribuir com uma lição? Abre um PR no GitHub.",
+  "about.cta.lessons":    "Começar a aprender",
+  "about.cta.github":     "Ver no GitHub",
 
   "theme.toggle_dark":  "Mudar para modo escuro",
   "theme.toggle_light": "Mudar para modo claro",

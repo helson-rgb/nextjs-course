@@ -82,10 +82,10 @@ export default function CurriculumPage() {
                             href={`/lessons/${lesson.slug}`}
                             className="font-semibold text-fg transition-colors hover:text-primary"
                           >
-                            {lesson.title}
+                            {t(`lesson.${lesson.slug}.title`)}
                           </Link>
                           <p className="mt-0.5 text-caption text-muted line-clamp-1">
-                            {lesson.summary}
+                            {t(`lesson.${lesson.slug}.summary`)}
                           </p>
                         </td>
                         <td className="hidden px-4 py-3 md:table-cell">
