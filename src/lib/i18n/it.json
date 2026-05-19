@@ -1,0 +1,34 @@
+{
+  "nav.home":       "Home",
+  "nav.lessons":    "Lezioni",
+  "nav.curriculum": "Curriculum",
+  "nav.about":      "Chi siamo",
+
+  "home.headline": "Impara React & Next.js costruendo",
+  "home.subtitle":  "Lezioni pratiche e playground interattivi con Sandpack. Scrivi codice reale, pubblica progetti reali e capisci il perché di ogni pattern.",
+  "home.cta.start":  "Inizia il corso",
+  "home.cta.browse": "Vedi curriculum",
+
+  "lessons.title":    "Lezioni",
+  "lessons.subtitle": "{count} lezioni in {chapters} capitoli",
+  "lessons.start":    "Inizia →",
+
+  "curriculum.title":    "Curriculum",
+  "curriculum.subtitle": "{count} lezioni · {hours}h {min}min · {chapters} capitoli",
+  "curriculum.lessons":  "lezioni",
+  "curriculum.min":      "min",
+
+  "lesson.chapter_badge": "Lezione {order} · {duration} min",
+  "lesson.content_soon":  "Contenuto della lezione in arrivo.",
+  "lesson.playground_note": "Questa lezione conterrà contenuto MDX e un playground interattivo con Sandpack.",
+  "lesson.prev": "← Precedente",
+  "lesson.next": "Successiva →",
+
+  "notfound.code":    "404",
+  "notfound.title":   "Lezione non trovata",
+  "notfound.body":    "Questa lezione non esiste ancora. Sfoglia il curriculum completo per trovare quello che cerchi.",
+  "notfound.back":    "Torna alle lezioni",
+  "notfound.browse":  "Vedi curriculum",
+
+  "footer.rights": "Tutti i diritti riservati."
+}

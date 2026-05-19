@@ -1,7 +1,12 @@
+'use client';
+
 import Image from 'next/image';
 import { Button } from '@/components/ui/Button';
+import { useLocale } from '@/lib/i18n/LocaleProvider';
 
 export default function Home() {
+  const { t } = useLocale();
+
   return (
     <section className="flex flex-1 flex-col items-center justify-center py-24">
       <div className="mx-auto flex max-w-5xl flex-col items-center gap-8 px-6 text-center">
@@ -14,22 +19,17 @@ export default function Home() {
         />
 
         <h1 className="font-display text-h1 font-bold leading-tight tracking-tight text-fg">
-          Learn React &amp; Next.js
-          <br className="hidden sm:block" />
-          by building
+          {t('home.headline')}
         </h1>
 
-        <p className="max-w-xl font-body text-body text-muted">
-          Hands-on lessons and interactive Sandpack playgrounds. Write real code,
-          ship real projects, and understand the why behind every pattern.
-        </p>
+        <p className="max-w-xl font-body text-body text-muted">{t('home.subtitle')}</p>
 
         <div className="flex flex-col gap-3 sm:flex-row">
           <Button href="/lessons" variant="primary">
-            Start the course
+            {t('home.cta.start')}
           </Button>
           <Button href="/curriculum" variant="secondary">
-            Browse curriculum
+            {t('home.cta.browse')}
           </Button>
         </div>
       </div>
