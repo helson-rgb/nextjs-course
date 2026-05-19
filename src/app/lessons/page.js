@@ -50,10 +50,10 @@ export default function LessonsPage() {
                         </span>
                         <div>
                           <h3 className="font-body text-small font-semibold text-fg group-hover:text-primary">
-                            {lesson.title}
+                            {t(`lesson.${lesson.slug}.title`)}
                           </h3>
                           <p className="mt-1 font-body text-caption text-muted line-clamp-2">
-                            {lesson.summary}
+                            {t(`lesson.${lesson.slug}.summary`)}
                           </p>
                           <div className="mt-2 flex flex-wrap gap-1">
                             {lesson.tags.slice(0, 3).map((tag) => (

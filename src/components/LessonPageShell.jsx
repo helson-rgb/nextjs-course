@@ -24,7 +24,7 @@ export function LessonPageShell({ lesson, prev, next, children }) {
         <span>/</span>
         <span>{chapterLabel}</span>
         <span>/</span>
-        <span className="text-fg">{lesson.title}</span>
+        <span className="text-fg">{t(`lesson.${lesson.slug}.title`)}</span>
       </nav>
 
       {/* Header */}
@@ -37,8 +37,12 @@ export function LessonPageShell({ lesson, prev, next, children }) {
             {t('lesson.chapter_badge', { order: lesson.order, duration: lesson.durationMin })}
           </span>
         </div>
-        <h1 className="font-display text-h1 font-bold text-fg">{lesson.title}</h1>
-        <p className="mt-4 max-w-2xl font-body text-body text-muted">{lesson.summary}</p>
+        <h1 className="font-display text-h1 font-bold text-fg">
+          {t(`lesson.${lesson.slug}.title`)}
+        </h1>
+        <p className="mt-4 max-w-2xl font-body text-body text-muted">
+          {t(`lesson.${lesson.slug}.summary`)}
+        </p>
         <div className="mt-4 flex flex-wrap gap-2">
           {lesson.tags.map((tag) => (
             <span
