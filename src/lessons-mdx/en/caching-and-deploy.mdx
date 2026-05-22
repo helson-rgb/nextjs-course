@@ -1,0 +1,277 @@
+# Caching & Deploy
+
+Next.js has four distinct caches that operate at different layers. Understanding which cache holds what data — and how to invalidate it — is the key to building apps that are both fast and correct.
+
+## The four caches
+
+```
+Request
+  │
+  ▼
+┌──────────────────────────────────────────────────────┐
+│  1. Request Memoization                              │
+│     Per-render, in memory. Deduplicates identical   │
+│     fetch() calls within one server render.         │
+│     Scope: single request. Never persists.          │
+└──────────────────────┬───────────────────────────────┘
+                       │ cache miss
+                       ▼
+┌──────────────────────────────────────────────────────┐
+│  2. Data Cache                                       │
+│     Persistent, cross-request. Stores fetch()       │
+│     responses keyed by URL + options.               │
+│     Controlled by: cache / next.revalidate / tags   │
+└──────────────────────┬───────────────────────────────┘
+                       │ data assembled
+                       ▼
+┌──────────────────────────────────────────────────────┐
+│  3. Full Route Cache                                 │
+│     Stores rendered HTML + RSC payload for static   │
+│     routes. Built at `next build` or after ISR.     │
+│     Invalidated by: revalidatePath, revalidateTag   │
+└──────────────────────┬───────────────────────────────┘
+                       │ response sent
+                       ▼
+┌──────────────────────────────────────────────────────┐
+│  4. Router Cache (client-side)                       │
+│     In-browser cache of visited RSC payloads.       │
+│     Prefetched links get their payload cached too.  │
+│     Invalidated by: router.refresh(), hard reload   │
+└──────────────────────────────────────────────────────┘
+```
+
+### 1. Request Memoization
+
+Within a single server render, calling `fetch('https://api.example.com/user')` in ten different Server Components results in one network request. React memoises the result for the duration of the render tree. No configuration needed — it is automatic.
+
+For non-`fetch` data sources, wrap the function in `React.cache`:
+
+```js
+import { cache } from 'react';
+import { db } from '@/lib/db';
+
+export const getUser = cache(async (id) => db.users.findById(id));
+```
+
+### 2. Data Cache
+
+The Data Cache stores `fetch()` responses on the server across requests. It persists between deploys until explicitly invalidated.
+
+```js
+// Cached indefinitely (or until manually purged)
+fetch(url, { cache: 'force-cache' })
+
+// Never cached — always fresh
+fetch(url, { cache: 'no-store' })
+
+// Cached, revalidated after 60 s (ISR)
+fetch(url, { next: { revalidate: 60 } })
+
+// Cached, tagged for on-demand purging
+fetch(url, { next: { tags: ['posts'] } })
+```
+
+### 3. Full Route Cache
+
+Static routes — those that do not use request-time APIs — are rendered at `next build` and stored as HTML + RSC payload. They are served directly from the CDN with no server computation.
+
+A route becomes **dynamic** the moment it touches any of these APIs:
+
+| API | Effect |
+|---|---|
+| `cookies()` | Dynamic |
+| `headers()` | Dynamic |
+| `searchParams` prop | Dynamic |
+| `fetch` with `cache: 'no-store'` | Dynamic |
+| `connection()` | Dynamic |
+
+Everything else stays static by default.
+
+### 4. Router Cache (client-side)
+
+The browser keeps an in-memory cache of RSC payloads for routes the user has visited (or that were prefetched via `<Link>`). Navigating back to a visited route is instant — no server round-trip.
+
+The Router Cache is not persistent: it lives only in the current tab session. Call `router.refresh()` (from `useRouter`) to force a revalidation without a full page reload.
+
+---
+
+## Revalidation strategies
+
+### Time-based ISR
+
+```js
+// Revalidate the Data Cache entry after 3600 s
+const res = await fetch('https://api.example.com/posts', {
+  next: { revalidate: 3600 },
+});
+```
+
+The first request after the TTL expires gets the stale response while a background refetch runs. The next request gets the fresh data.
+
+### On-demand revalidation
+
+```js
+import { revalidatePath, revalidateTag } from 'next/cache';
+
+// Purge all cached responses tagged 'posts' + any Full Route Cache entries
+// that depended on those responses
+export async function POST(request) {
+  const { tag } = await request.json();
+  revalidateTag(tag);
+  return Response.json({ revalidated: true });
+}
+
+// Or purge a specific page
+revalidatePath('/blog/hello-world');
+revalidatePath('/blog', 'page');   // all pages under /blog
+```
+
+`revalidateTag` and `revalidatePath` also invalidate the **Full Route Cache** for affected routes — the next request re-renders the route and caches the result.
+
+---
+
+## Static vs dynamic rendering — deciding factors
+
+```
+Does the page component call cookies(), headers(), or use searchParams?
+  YES → Dynamic (rendered on every request)
+  NO  → Does it fetch with cache: 'no-store'?
+          YES → Dynamic
+          NO  → Static (HTML built at compile time)
+```
+
+You can force a segment to be dynamic with the route segment config:
+
+```js
+export const dynamic = 'force-dynamic';    // always server-render
+export const dynamic = 'force-static';     // always static (ignore runtime APIs)
+export const revalidate = 60;              // ISR: revalidate every 60 s
+```
+
+---
+
+## `middleware.js` — edge-level request processing
+
+`middleware.js` at the root of `src/` (or project root) runs on the **Edge runtime** before every matched request. It can read and rewrite the incoming `Request`, set response headers, redirect, or return a response early.
+
+```js
+// src/middleware.js
+import { NextResponse } from 'next/server';
+
+export function middleware(request) {
+  const { pathname } = request.nextUrl;
+
+  // Redirect the singular /lesson/* typo to canonical /lessons/*
+  if (pathname.startsWith('/lesson/')) {
+    return NextResponse.redirect(
+      new URL(pathname.replace('/lesson/', '/lessons/'), request.url),
+      308
+    );
+  }
+
+  return NextResponse.next();
+}
+
+// Only run on paths that match — skip static assets, api routes, etc.
+export const config = {
+  matcher: ['/lesson/:path*', '/lessons/'],
+};
+```
+
+### What middleware can do
+
+- Read and set **request headers** and **response headers**
+- Read **cookies** (`request.cookies.get(...)`)
+- **Redirect** (`NextResponse.redirect(...)`) and **rewrite** (`NextResponse.rewrite(...)`)
+- Return an **early response** (useful for auth guards)
+- Read `request.nextUrl` (parsed URL, geolocation, IP)
+
+### What middleware cannot do
+
+- Import **Node.js APIs** (`fs`, `crypto`, `path`) — Edge runtime only
+- Query a **database** directly — use a lightweight token check instead
+- Access the **file system**
+
+### Common middleware patterns
+
+**Auth gate** — redirect to login if no session cookie:
+
+```js
+export function middleware(request) {
+  const token = request.cookies.get('session')?.value;
+  if (!token && request.nextUrl.pathname.startsWith('/dashboard')) {
+    return NextResponse.redirect(new URL('/login', request.url));
+  }
+  return NextResponse.next();
+}
+```
+
+**A/B testing** — rewrite to variant based on a cookie:
+
+```js
+export function middleware(request) {
+  const bucket = request.cookies.get('ab-bucket')?.value ?? 'control';
+  const url = request.nextUrl.clone();
+  url.pathname = bucket === 'test' ? '/home-v2' : '/home';
+  return NextResponse.rewrite(url);
+}
+```
+
+**Internationalisation** — detect browser language and redirect:
+
+```js
+export function middleware(request) {
+  const lang = request.headers.get('accept-language')?.split(',')[0].split('-')[0];
+  if (lang === 'pt' && !request.nextUrl.pathname.startsWith('/pt')) {
+    return NextResponse.redirect(new URL(`/pt${request.nextUrl.pathname}`, request.url));
+  }
+  return NextResponse.next();
+}
+```
+
+---
+
+## Deploying to Vercel
+
+### Step-by-step
+
+1. Push to GitHub
+2. Import repo at [vercel.com/new](https://vercel.com/new) — Vercel detects Next.js automatically
+3. Add environment variables under **Settings → Environment Variables**
+4. Deploy — Vercel runs `next build` and maps the output to its infrastructure
+
+Every PR gets a **preview deployment** — an isolated URL for review before merging.
+
+### What maps where on Vercel
+
+| `next build` output | Vercel infrastructure |
+|---|---|
+| `○` Static pages | Global CDN edge |
+| `●` SSG pages | Global CDN edge |
+| `ƒ` Dynamic routes | Serverless Functions |
+| `middleware.js` | Edge Middleware (runs in all regions) |
+| `next/image` | On-demand image optimisation function |
+
+### Self-hosted
+
+Run `next build && next start` on any Node.js 20+ host (Docker, Railway, Fly.io). All features work except platform-specific edge networking. For self-hosted ISR and on-demand revalidation, configure a custom cache handler via `next.config.js`.
+
+---
+
+## Deploy checklist
+
+<Callout type="tip">
+Before shipping to production, verify:
+
+- [ ] `npm run build` exits cleanly — no TypeScript errors, MDX parse errors, or missing imports
+- [ ] All secret environment variables are set in Vercel (or your host) — not committed to `.env.local`
+- [ ] `NEXT_PUBLIC_SITE_URL` is set to your production domain (needed for `metadataBase`)
+- [ ] Dynamic routes that should be static are `○` or `●` in the build output — not accidentally `ƒ`
+- [ ] `next/image` has `priority` on above-the-fold images
+- [ ] `middleware.js` matcher is as narrow as possible — avoid running middleware on every route
+- [ ] Run Lighthouse on the production URL and check LCP < 2.5 s, CLS < 0.1
+</Callout>
+
+---
+
+**References:** [Caching in Next.js](https://nextjs.org/docs/app/building-your-application/caching) · [revalidatePath](https://nextjs.org/docs/app/api-reference/functions/revalidatePath) · [revalidateTag](https://nextjs.org/docs/app/api-reference/functions/revalidateTag) · [Middleware](https://nextjs.org/docs/app/building-your-application/routing/middleware) · [Deploying](https://nextjs.org/docs/app/getting-started/deploying)

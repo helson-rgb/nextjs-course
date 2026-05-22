@@ -1,0 +1,228 @@
+# Basi dell'App Router
+
+L'App Router è il sistema di routing di Next.js dalla versione 13. Le cartelle corrispondono direttamente ai segmenti URL; una manciata di nomi di file riservati controlla cosa viene renderizzato in ogni segmento. Non c'è nessun file di configurazione — la struttura di `src/app/` è la configurazione stessa.
+
+## La convenzione della directory app/
+
+Ogni cartella all'interno di `src/app/` che contiene un `page.js` diventa una route pubblica. Le cartelle senza un `page.js` esistono solo per raggruppare i file — non vengono mai esposte come URL.
+
+```
+src/app/
+├── layout.js          → avvolge ogni route (layout radice)
+├── page.js            → renderizza /
+├── about/
+│   └── page.js        → renderizza /about
+├── curriculum/
+│   └── page.js        → renderizza /curriculum
+└── lessons/
+    ├── page.js        → renderizza /lessons
+    └── [slug]/
+        ├── page.js    → renderizza /lessons/jsx-and-rendering, /lessons/state-and-events, …
+        └── not-found.js
+```
+
+Questo è il vero albero di file dell'app che stai leggendo in questo momento. Ogni `page.js` è un componente React — asincrono per impostazione predefinita, il che significa che può fare `await` sui dati prima di renderizzare.
+
+## Nomi di file speciali
+
+Next.js riserva un insieme di nomi di file che svolgono ciascuno un compito specifico in un segmento di route. Puoi aggiungerli a qualsiasi cartella.
+
+| File | Scopo |
+|---|---|
+| `page.js` | UI univoca per quell'URL; rende la route pubblicamente accessibile |
+| `layout.js` | Avvolge tutti i figli e le pagine del segmento; persiste tra le navigazioni |
+| `loading.js` | Scheletro di caricamento istantaneo mostrato mentre la pagina è in sospeso |
+| `error.js` | Error boundary; intercetta gli errori a runtime e permette all'utente di recuperare |
+| `not-found.js` | Renderizzato quando `notFound()` viene chiamato all'interno della route |
+| `template.js` | Come un layout ma viene ri-montato ad ogni navigazione (lo state si azzera) |
+| `route.js` | Endpoint API (senza UI); gestisce GET, POST, ecc. |
+
+<Callout type="tip">
+**Questi file sono collocati insieme alla tua route.** Un `loading.js` all'interno di `src/app/lessons/[slug]/` avvolge solo quella route, non l'intera app. Puoi aggiungerli a qualsiasi livello di annidamento e influenzano solo il segmento in cui si trovano.
+</Callout>
+
+## Segmenti di route
+
+Un segmento di route è un livello di cartella. L'URL completo viene costruito unendo tutti i nomi dei segmenti dalla radice verso il basso:
+
+```
+app/
+└── blog/           → segmento: "blog"
+    └── posts/      → segmento: "posts"
+        └── page.js → URL: /blog/posts
+```
+
+## Segmenti dinamici — [param]
+
+Racchiudi il nome di una cartella tra parentesi quadre per renderla un segmento dinamico. Il valore corrispondente è disponibile come `params.param` all'interno di `page.js` e `layout.js`:
+
+```jsx
+// src/app/lessons/[slug]/page.js
+export default async function LessonPage({ params }) {
+  const { slug } = await params;   // es. "jsx-and-rendering"
+  return <h1>{slug}</h1>;
+}
+```
+
+`params` è una Promise in Next.js 15+ — devi fare `await`.
+
+## Segmenti catch-all — [...slug]
+
+Una cartella denominata `[...slug]` corrisponde a qualsiasi numero di segmenti aggiuntivi. Il valore è un array:
+
+```
+app/docs/[...slug]/page.js
+```
+
+- `/docs/react` → `params.slug = ['react']`
+- `/docs/react/hooks` → `params.slug = ['react', 'hooks']`
+- `/docs` → **404** (il catch-all non corrisponde a zero segmenti)
+
+## Catch-all opzionale — [[...slug]]
+
+Le doppie parentesi rendono il catch-all opzionale, così corrisponde anche al percorso base:
+
+```
+app/docs/[[...slug]]/page.js
+```
+
+- `/docs` → `params.slug = undefined` (o `[]`)
+- `/docs/react/hooks` → `params.slug = ['react', 'hooks']`
+
+## Gruppi di route — (group)
+
+Racchiudere il nome di una cartella tra parentesi crea un **gruppo di route**: organizza i file senza influenzare l'URL. Il nome del gruppo non appare nel percorso:
+
+```
+src/app/
+└── (marketing)/
+    ├── layout.js    → layout solo per le pagine marketing
+    ├── page.js      → renderizza /
+    └── about/
+        └── page.js  → renderizza /about
+```
+
+I gruppi di route ti permettono di condividere un layout tra alcune route ma non altre, senza che quel layout si applichi all'intera app.
+
+## Route parallele — @slot
+
+Aggiungi il prefisso `@` a una cartella per creare uno slot con nome che può essere renderizzato simultaneamente in un layout padre. In breve: un layout può accettare più figli con nome (`@sidebar`, `@modal`) e renderizzarli fianco a fianco. Ogni slot viene navigato in modo indipendente. Utile per dashboard, split-view e modal che hanno bisogno del proprio URL. Approfondiremo nella lezione sul routing avanzato.
+
+## Route di intercettazione
+
+Una cartella con prefisso `(.)`, `(..)` o `(...)` intercetta una route e renderizza una UI diversa all'interno del layout corrente — l'uso più comune è un modal foto che si apre in-place mentre l'URL cambia, poi mostra la pagina completa all'aggiornamento forzato. Questo è trattato nella lezione sul routing avanzato.
+
+---
+
+## L'albero di file di questa app
+
+Ecco la struttura completa di `src/app/` in Next Academy:
+
+```
+src/app/
+├── favicon.ico
+├── globals.css
+├── layout.js               ← layout radice: <html>, font, Header, Footer
+├── page.js                 ← /  (home page)
+├── about/
+│   └── page.js             ← /about
+├── curriculum/
+│   └── page.js             ← /curriculum
+└── lessons/
+    ├── page.js             ← /lessons  (indice delle lezioni)
+    └── [slug]/
+        ├── page.js         ← /lessons/jsx-and-rendering, /lessons/state-and-events …
+        └── not-found.js    ← mostrato quando getLessonBySlug restituisce null
+```
+
+La pagina `[slug]` chiama `generateStaticParams` al build time, generando un file HTML per ogni slug di lezione. A runtime legge lo slug dai `params`, recupera i metadati della lezione, poi importa il file MDX corretto.
+
+---
+
+## Playground — app Next.js minimale con 3 route
+
+Questa sandbox mostra la struttura essenziale dei file: un layout radice, una home page e una route dinamica `[id]`. Modifica il layout per aggiungere un link di navigazione oppure aggiungi una nuova cartella/pagina per vedere il router rispondere.
+
+<Playground
+  template="nextjs"
+  files={{
+    'app/layout.js': `export default function RootLayout({ children }) {
+  return (
+    <html lang="en">
+      <body style={{ fontFamily: 'sans-serif', margin: 0 }}>
+        <nav style={{
+          padding: '0.75rem 1.5rem',
+          borderBottom: '1px solid #e2e8f0',
+          display: 'flex',
+          gap: '1rem',
+        }}>
+          <a href="/"        style={{ color: '#494bd6', textDecoration: 'none', fontWeight: 600, fontSize: '0.875rem' }}>Home</a>
+          <a href="/about"   style={{ color: '#494bd6', textDecoration: 'none', fontWeight: 600, fontSize: '0.875rem' }}>About</a>
+          <a href="/posts/1" style={{ color: '#494bd6', textDecoration: 'none', fontWeight: 600, fontSize: '0.875rem' }}>Post 1</a>
+          <a href="/posts/2" style={{ color: '#494bd6', textDecoration: 'none', fontWeight: 600, fontSize: '0.875rem' }}>Post 2</a>
+        </nav>
+        <main style={{ padding: '2rem' }}>{children}</main>
+      </body>
+    </html>
+  );
+}`,
+    'app/page.js': `export default function Home() {
+  return (
+    <div>
+      <h1 style={{ fontSize: '2rem', fontWeight: 700, marginBottom: '1rem' }}>Home</h1>
+      <p style={{ color: '#64748b' }}>
+        This is the root <code>page.js</code> — it renders at <code>/</code>.
+      </p>
+    </div>
+  );
+}`,
+    'app/about/page.js': `export default function About() {
+  return (
+    <div>
+      <h1 style={{ fontSize: '2rem', fontWeight: 700, marginBottom: '1rem' }}>About</h1>
+      <p style={{ color: '#64748b' }}>
+        The <code>about/</code> folder contains a <code>page.js</code>, so it
+        becomes the route <code>/about</code>.
+      </p>
+    </div>
+  );
+}`,
+    'app/posts/[id]/page.js': `export default async function PostPage({ params }) {
+  const { id } = await params;
+  return (
+    <div>
+      <h1 style={{ fontSize: '2rem', fontWeight: 700, marginBottom: '1rem' }}>Post {id}</h1>
+      <p style={{ color: '#64748b' }}>
+        The <code>[id]</code> folder is a dynamic segment.
+        The value <strong>{id}</strong> comes from the URL.
+      </p>
+      <p style={{ color: '#64748b', marginTop: '0.5rem', fontSize: '0.875rem' }}>
+        Try changing the URL to <code>/posts/42</code>.
+      </p>
+    </div>
+  );
+}`,
+  }}
+  activeFile="app/posts/[id]/page.js"
+  height={460}
+/>
+
+---
+
+## Scheda di riferimento rapido per i file speciali
+
+<Callout type="tip">
+| File | Quando aggiungerlo |
+|---|---|
+| `page.js` | Ogni route che deve essere pubblicamente accessibile |
+| `layout.js` | Chrome condiviso (nav, sidebar) che deve persistere tra le navigazioni figlie |
+| `loading.js` | Quando una pagina esegue lavoro asincrono e vuoi uno scheletro istantaneo |
+| `error.js` | Quando una pagina potrebbe lanciare un errore a runtime e vuoi una UI di recupero |
+| `not-found.js` | Quando la pagina chiama `notFound()` (es. la risorsa non esiste) |
+| `template.js` | Quando hai bisogno che lo state si azzeri ad ogni navigazione (raro) |
+| `route.js` | Endpoint API JSON — niente JSX, solo oggetti `Response` |
+</Callout>
+
+---
+
+**Riferimenti:** [Routing](https://nextjs.org/docs/app/building-your-application/routing) · [Defining Routes](https://nextjs.org/docs/app/building-your-application/routing/defining-routes) · [Dynamic Routes](https://nextjs.org/docs/app/building-your-application/routing/dynamic-routes) · [Route Groups](https://nextjs.org/docs/app/building-your-application/routing/route-groups) · [Parallel Routes](https://nextjs.org/docs/app/building-your-application/routing/parallel-routes)

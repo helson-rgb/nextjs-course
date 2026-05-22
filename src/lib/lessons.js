@@ -133,14 +133,14 @@ export const LESSONS = [
     tags: ['api', 'route-handlers', 'REST'],
   },
   {
-    slug: 'metadata-and-seo',
+    slug: 'metadata-image-font',
     order: 14,
     chapter: 'Next.js Essentials',
-    title: 'Metadata & SEO',
+    title: 'Metadata, Images & Fonts',
     summary:
-      'Export a static metadata object or a generateMetadata function, set Open Graph tags, and verify your pages in the browser head.',
-    durationMin: 10,
-    tags: ['metadata', 'SEO', 'og-tags'],
+      'Set page titles and Open Graph tags with the metadata API, serve optimised images with next/image, and eliminate layout shift with next/font.',
+    durationMin: 16,
+    tags: ['metadata', 'SEO', 'next/image', 'next/font', 'open-graph'],
   },
   {
     slug: 'loading-and-error-states',
@@ -153,10 +153,32 @@ export const LESSONS = [
     tags: ['loading', 'error', 'Suspense', 'streaming'],
   },
 
+  {
+    slug: 'server-actions',
+    order: 16,
+    chapter: 'Next.js Essentials',
+    title: 'Server Actions',
+    summary:
+      'Mutate data with "use server" actions called directly from forms, show pending state with useFormStatus, handle errors with useActionState, and revalidate the cache with revalidatePath.',
+    durationMin: 18,
+    tags: ['server-actions', 'mutations', 'useFormStatus', 'useActionState', 'forms'],
+  },
+
+  {
+    slug: 'caching-and-deploy',
+    order: 17,
+    chapter: 'Next.js Essentials',
+    title: 'Caching & Deploy',
+    summary:
+      'Understand the four Next.js caches, control static vs dynamic rendering, revalidate on demand, gate routes with middleware, and ship to Vercel.',
+    durationMin: 20,
+    tags: ['caching', 'middleware', 'deploy', 'revalidation', 'ISR'],
+  },
+
   // ─── Chapter 3: Going to Production ──────────────────────────────────────
   {
     slug: 'deploy-and-optimize',
-    order: 16,
+    order: 18,
     chapter: 'Going to Production',
     title: 'Deploy & Optimize',
     summary:

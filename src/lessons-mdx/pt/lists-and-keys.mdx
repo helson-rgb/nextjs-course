@@ -1,0 +1,486 @@
+# Renderização Condicional e Listas
+
+Renderizar o conteúdo certo no momento certo é o núcleo de qualquer UI dinâmica. O React dá-te três ferramentas para output condicional e um padrão para arrays — tudo usando JavaScript simples sem sintaxe especial.
+
+## Ternário: um ramo ou o outro
+
+O operador ternário renderiza um de dois valores com base numa condição:
+
+```jsx
+{isLoggedIn ? <Dashboard /> : <LoginPrompt />}
+```
+
+Usa ternários quando ambos os ramos produzem output. Se o ramo falso não renderiza nada, `&&` é mais limpo.
+
+Podes também usar ternários para alternar entre aspetos diferentes do mesmo elemento:
+
+```jsx
+<button className={isActive ? 'btn-primary' : 'btn-ghost'}>
+  {isActive ? 'Ativo' : 'Inativo'}
+</button>
+```
+
+Mantém os ternários em JSX curtos. Quando a condição ou qualquer ramo cresce para mais de uma linha, extrai-o para uma variável antes do return:
+
+```jsx
+const conteudo = isLoggedIn ? <Dashboard /> : <LoginPrompt />;
+
+return <main>{conteudo}</main>;
+```
+
+## && curto-circuito: renderizar ou nada
+
+Quando só queres renderizar algo no caso verdadeiro, faz curto-circuito com `&&`:
+
+```jsx
+{temErro && <BannerErro mensagem={erro.mensagem} />}
+{isAdmin && <PainelAdmin />}
+```
+
+O React ignora `false`, `null` e `undefined` — não produzem nenhum output no DOM. `&&` funciona porque o JavaScript avalia `false && qualquerCoisa` como `false`, que o React ignora.
+
+**A armadilha do 0.** O operando esquerdo deve ser um booleano, não um número. Se for `0`, o React renderiza o dígito "0":
+
+```jsx
+// ❌ Renderiza o string "0" quando o array está vazio
+{items.length && <Lista items={items} />}
+
+// ✅ Converte para booleano primeiro
+{items.length > 0 && <Lista items={items} />}
+
+// ✅ Ou usa um ternário com null
+{items.length ? <Lista items={items} /> : null}
+```
+
+O mesmo se aplica a qualquer número falsy. Mantém o lado esquerdo como booleano estrito — `count > 0`, `Boolean(valor)`, ou dupla negação `!!valor`.
+
+## Retorno antecipado: não renderizar nada
+
+Um componente pode retornar `null` para não renderizar nenhum output. Isto é útil para guards — componentes que precisam de uma pré-condição para produzir qualquer output:
+
+```jsx
+function BannerSucesso({ mensagem }) {
+  if (!mensagem) return null; // nada adicionado ao DOM
+
+  return (
+    <div className="banner banner--sucesso">
+      {mensagem}
+    </div>
+  );
+}
+```
+
+Retornar `null` não remove o componente da árvore React — os hooks continuam a correr, as subscrições continuam a disparar. Simplesmente não produz nós DOM. Usa-o quando o componente legitimamente não tem nada para mostrar, não como forma de ignorar efeitos secundários dispendiosos.
+
+## Renderizar listas com .map()
+
+Para renderizar um array, chama `.map()` e retorna JSX para cada item:
+
+```jsx
+const nomes = ['Alice', 'Bob', 'Carol'];
+
+return (
+  <ul>
+    {nomes.map(nome => (
+      <li key={nome}>{nome}</li>
+    ))}
+  </ul>
+);
+```
+
+Cada item no callback de `.map()` pode ser tão complexo quanto precisares — um componente completo, múltiplos elementos num Fragment:
+
+```jsx
+{produtos.map(produto => (
+  <React.Fragment key={produto.id}>
+    <dt>{produto.nome}</dt>
+    <dd>{produto.preco}</dd>
+  </React.Fragment>
+))}
+```
+
+A chamada `.map()` é apenas uma expressão JavaScript — vive dentro de `{}` em JSX da mesma forma que qualquer outra expressão.
+
+## Porque cada item de lista precisa de uma key estável
+
+O React usa keys para rastrear quais itens mudaram, foram adicionados ou removidos entre renders. Sem elas, o React recorre à comparação por posição — e isso causa bugs subtis difíceis de depurar.
+
+```jsx
+// ❌ Sem key — o React faz correspondência por posição
+{items.map(item => <Row label={item.label} />)}
+
+// ✅ Key estável — o React rastreia cada item pela sua identidade
+{items.map(item => <Row key={item.id} label={item.label} />)}
+```
+
+### O bug do input que muda ao apagar
+
+Aqui está o que corre mal sem keys estáveis. Três linhas com inputs não controlados, com key por índice:
+
+```
+Índice 0 → Alice  [input: ""]
+Índice 1 → Bob    [input: "texto escrito"]   ← utilizador escreveu algo
+Índice 2 → Carol  [input: ""]
+```
+
+Apaga o Bob. O React reconcilia o novo array `[Alice, Carol]` contra o antigo `[Alice, Bob, Carol]` **por posição**:
+
+- Posição 0 → Alice: igual, mantém o nó DOM.
+- Posição 1 → Carol: **era Bob** — o React reutiliza o nó DOM do Bob para a Carol. O nó DOM do input também é reutilizado, portanto "texto escrito" ainda está nele.
+- Posição 2 → desapareceu.
+
+A linha da Carol mostra agora o conteúdo escrito pelo Bob. O estado do DOM vazou.
+
+Com `key={item.id}`:
+
+- key `"alice"` → Alice: igual, mantido.
+- key `"bob"` → desapareceu: **destruído com o seu nó DOM**, input limpo.
+- key `"carol"` → Carol: igual, intocado.
+
+O conteúdo correto fica na linha correta.
+
+<Callout type="info">
+**Quando o índice como key é seguro:** Se a lista for puramente estática — nunca reordenada, nunca com itens removidos do meio — e as linhas não tiverem estado interno (sem inputs, sem foco, sem animações), usar o índice do array como key é seguro. Exemplos: uma lista só de leitura de etiquetas, uma tabela de referência estática, uma lista paginada que substitui completamente ao mudar de página. O bug só aparece quando o React reutiliza um nó DOM que tem estado modificado pelo utilizador. Se nenhuma das tuas linhas tem estado interno, não há nada a vazar.
+</Callout>
+
+**Regras para keys:**
+
+- **Únicas** entre irmãos na mesma lista (não globalmente).
+- **Estáveis** — o mesmo item de dados deve receber a mesma key em todos os renders.
+- **Não o índice do array** quando os items podem ser eliminados, adicionados ou reordenados.
+
+Boas fontes de keys: IDs de base de dados, UUIDs, slugs, hashes de conteúdo estáveis. Se os teus dados não têm IDs, adiciona-os antes de os dados entrarem no estado — nunca os generates dentro de `.map()` com `Math.random()` ou `Date.now()`, pois uma nova key em cada render é equivalente a não ter key.
+
+---
+
+## Playground 1 — Estado de sessão
+
+`isLoggedIn` alterna entre dois componentes completamente diferentes. Repara no ternário em `App.js` — um booleano controla toda a mudança de vista. Tenta extendê-lo: adiciona um estado `isLoading` e renderiza um terceiro painel "A carregar…" usando um ternário aninhado ou retorno antecipado.
+
+<Playground
+  files={{
+    '/App.js': `import { useState } from 'react';
+import { Dashboard } from './Dashboard';
+import { LoginPrompt } from './LoginPrompt';
+
+export default function App() {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '480px' }}>
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '1.25rem',
+      }}>
+        <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
+          {isLoggedIn ? 'Sessão iniciada como Alice' : 'Sem sessão iniciada'}
+        </span>
+        <button
+          onClick={() => setIsLoggedIn(v => !v)}
+          style={{
+            padding: '0.375rem 0.875rem',
+            background: isLoggedIn ? '#fee2e2' : '#f0fdf4',
+            color: isLoggedIn ? '#dc2626' : '#16a34a',
+            border: 'none',
+            borderRadius: '6px',
+            fontWeight: 600,
+            cursor: 'pointer',
+            fontSize: '0.8rem',
+            fontFamily: 'sans-serif',
+          }}
+        >
+          {isLoggedIn ? 'Terminar sessão' : 'Iniciar sessão'}
+        </button>
+      </div>
+
+      {isLoggedIn ? (
+        <Dashboard name="Alice" />
+      ) : (
+        <LoginPrompt onLogin={() => setIsLoggedIn(true)} />
+      )}
+    </div>
+  );
+}`,
+    '/Dashboard.js': `export function Dashboard({ name }) {
+  const stats = [
+    { label: 'Lições',    value: '4'   },
+    { label: 'Sequência', value: '7d'  },
+    { label: 'Progresso', value: '32%' },
+  ];
+
+  return (
+    <div style={{
+      padding: '1.5rem',
+      background: 'white',
+      border: '1px solid #e2e8f0',
+      borderRadius: '8px',
+      fontFamily: 'sans-serif',
+    }}>
+      <p style={{ margin: '0 0 0.25rem', fontSize: '1.125rem', fontWeight: 700 }}>
+        Bem-vindo de volta, {name}!
+      </p>
+      <p style={{ margin: '0 0 1.25rem', color: '#64748b', fontSize: '0.875rem' }}>
+        Aqui está o que está a acontecer hoje.
+      </p>
+      <div style={{ display: 'flex', gap: '0.75rem' }}>
+        {stats.map(stat => (
+          <div key={stat.label} style={{
+            flex: 1, padding: '0.75rem', background: '#f8fafc',
+            borderRadius: '6px', textAlign: 'center',
+          }}>
+            <p style={{ margin: '0 0 0.25rem', fontSize: '1.25rem', fontWeight: 700, color: 'rebeccapurple' }}>
+              {stat.value}
+            </p>
+            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b' }}>{stat.label}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}`,
+    '/LoginPrompt.js': `export function LoginPrompt({ onLogin }) {
+  return (
+    <div style={{
+      padding: '2rem 1.5rem',
+      background: 'white',
+      border: '1px solid #e2e8f0',
+      borderRadius: '8px',
+      fontFamily: 'sans-serif',
+      textAlign: 'center',
+    }}>
+      <p style={{ margin: '0 0 0.25rem', fontSize: '1.125rem', fontWeight: 700 }}>
+        Inicia sessão para continuar
+      </p>
+      <p style={{ margin: '0 0 1.5rem', color: '#64748b', fontSize: '0.875rem' }}>
+        Acede às tuas lições e acompanha o teu progresso.
+      </p>
+      <button
+        onClick={onLogin}
+        style={{
+          padding: '0.5rem 1.5rem',
+          background: 'rebeccapurple',
+          color: 'white',
+          border: 'none',
+          borderRadius: '6px',
+          fontWeight: 600,
+          cursor: 'pointer',
+          fontSize: '0.875rem',
+          fontFamily: 'sans-serif',
+        }}
+      >
+        Iniciar sessão
+      </button>
+    </div>
+  );
+}`,
+  }}
+  activeFile="/App.js"
+/>
+
+## Playground 2 — Bugs de keys lado a lado
+
+Ambos os painéis renderizam a mesma lista e o mesmo componente `Row` (com um input não controlado). A única diferença é a key: índice à esquerda, ID estável à direita.
+
+**Experiência:** escreve algo no input do Bob em *ambos* os painéis, depois clica × ao lado do Bob. No painel esquerdo, a linha da Carol mostra agora o texto do Bob — o estado do DOM vazou. No painel direito, a linha da Carol não foi afetada.
+
+<Playground
+  files={{
+    '/App.js': `import { useState } from 'react';
+
+const INICIAL = [
+  { id: 'alice', label: 'Alice' },
+  { id: 'bob',   label: 'Bob'   },
+  { id: 'carol', label: 'Carol' },
+];
+
+function Row({ label, onDelete }) {
+  return (
+    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem' }}>
+      <input
+        defaultValue={label}
+        style={{
+          padding: '0.375rem 0.5rem',
+          border: '1px solid #cbd5e1',
+          borderRadius: '4px',
+          fontSize: '0.8rem',
+          width: '90px',
+          fontFamily: 'sans-serif',
+        }}
+      />
+      <button
+        onClick={onDelete}
+        style={{
+          background: 'none', border: 'none',
+          color: '#94a3b8', cursor: 'pointer',
+          fontSize: '1.125rem', lineHeight: 1, padding: '0 0.2rem',
+        }}
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
+export default function App() {
+  const [items, setItems] = useState(INICIAL);
+
+  function remover(id) {
+    setItems(prev => prev.filter(item => item.id !== id));
+  }
+
+  const painel = (mau) => ({
+    flex: 1,
+    padding: '1rem',
+    background: '#f8fafc',
+    borderRadius: '6px',
+    border: '1px solid ' + (mau ? '#fecaca' : '#bbf7d0'),
+  });
+
+  const titulo = (mau) => ({
+    margin: '0 0 0.75rem',
+    fontSize: '0.8rem',
+    fontWeight: 700,
+    color: mau ? '#dc2626' : '#16a34a',
+    fontFamily: 'sans-serif',
+  });
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '1.5rem' }}>
+      <p style={{ margin: '0 0 1rem', fontSize: '0.8rem', color: '#64748b' }}>
+        Escreve no input do Bob, depois apaga o Bob. Observa o que acontece em cada painel.
+      </p>
+      <div style={{ display: 'flex', gap: '1rem' }}>
+        <div style={painel(true)}>
+          <p style={titulo(true)}>key=índice ❌</p>
+          {items.map((item, i) => (
+            <Row key={i} label={item.label} onDelete={() => remover(item.id)} />
+          ))}
+        </div>
+        <div style={painel(false)}>
+          <p style={titulo(false)}>key=id ✅</p>
+          {items.map(item => (
+            <Row key={item.id} label={item.label} onDelete={() => remover(item.id)} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}`,
+  }}
+  activeFile="/App.js"
+/>
+
+## Playground 3 — Filtro / pesquisa
+
+`results` é derivado de `USERS` e `query` em cada render — não é necessário estado separado para a lista filtrada. Como `results` está sempre sincronizado com ambos, o `&&` / ternário para o estado vazio funciona automaticamente. Tenta adicionar um filtro de role (um segundo input ou um conjunto de botões toggle) ao lado da pesquisa por nome.
+
+<Playground
+  files={{
+    '/App.js': `import { useState } from 'react';
+
+const UTILIZADORES = [
+  { id: 1, name: 'Alice Johnson', role: 'Admin'  },
+  { id: 2, name: 'Bob Smith',     role: 'Member' },
+  { id: 3, name: 'Carol Davis',   role: 'Guest'  },
+  { id: 4, name: 'David Lee',     role: 'Member' },
+  { id: 5, name: 'Eve Martinez',  role: 'Admin'  },
+];
+
+const BADGE = {
+  Admin:  { bg: '#dcfce7', text: '#16a34a' },
+  Member: { bg: '#dbeafe', text: '#2563eb' },
+  Guest:  { bg: '#fef9c3', text: '#ca8a04' },
+};
+
+export default function App() {
+  const [query, setQuery] = useState('');
+
+  const resultados = UTILIZADORES.filter(u =>
+    u.name.toLowerCase().includes(query.toLowerCase())
+  );
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '400px' }}>
+      <input
+        value={query}
+        onChange={e => setQuery(e.target.value)}
+        placeholder="Pesquisar utilizadores…"
+        style={{
+          width: '100%',
+          padding: '0.5rem 0.75rem',
+          border: '1px solid #e2e8f0',
+          borderRadius: '6px',
+          fontSize: '0.875rem',
+          fontFamily: 'sans-serif',
+          outline: 'none',
+          boxSizing: 'border-box',
+          marginBottom: '1rem',
+        }}
+      />
+
+      {resultados.length === 0 ? (
+        <p style={{ color: '#94a3b8', fontSize: '0.875rem', textAlign: 'center', margin: '2rem 0' }}>
+          Nenhum utilizador corresponde a "{query}"
+        </p>
+      ) : (
+        <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          {resultados.map(u => {
+            const { bg, text } = BADGE[u.role];
+            return (
+              <li
+                key={u.id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '0.625rem 0.875rem',
+                  background: 'white',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '6px',
+                }}
+              >
+                <span style={{ fontWeight: 500, fontSize: '0.875rem' }}>{u.name}</span>
+                <span style={{
+                  background: bg, color: text,
+                  padding: '0.2rem 0.6rem',
+                  borderRadius: '999px',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                }}>
+                  {u.role}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      <p style={{ color: '#94a3b8', fontSize: '0.75rem', marginTop: '0.75rem', textAlign: 'right' }}>
+        {resultados.length} de {UTILIZADORES.length} utilizadores
+      </p>
+    </div>
+  );
+}`,
+  }}
+  activeFile="/App.js"
+/>
+
+---
+
+## Conclusões principais
+
+<Callout type="tip">
+**Três ferramentas para output condicional.** Ternário (`condição ? a : b`) quando ambos os ramos renderizam algo. `&&` quando só o ramo verdadeiro renderiza algo — mas mantém o lado esquerdo como booleano para evitar a armadilha do "0 renderiza como texto". Retorno antecipado `null` quando um componente não tem nada para mostrar.
+
+**`.map()` é o único primitivo de lista.** Retorna JSX do callback; o array resultante entra em `{}` como qualquer outra expressão. Extrai o callback para uma função nomeada quando cresce para mais de duas ou três linhas.
+
+**As keys são identidade, não ordem.** O React usa keys para fazer corresponder itens entre renders. Sem keys estáveis, o React reconcilia por posição — reutilizando nós DOM para os itens errados e vazando estado (como valores digitados em inputs) para as linhas erradas.
+
+**Usa IDs de base de dados, slugs ou UUIDs como keys.** Nunca `Math.random()` ou `Date.now()` dentro de `.map()` — uma nova key em cada render destrói e recria o nó DOM em cada render. O índice do array só é seguro quando a lista é estática e as linhas não têm estado interno.
+</Callout>
+
+---
+
+**Referências:** [Renderização Condicional](https://react.dev/learn/conditional-rendering) · [Renderizar Listas](https://react.dev/learn/rendering-lists)

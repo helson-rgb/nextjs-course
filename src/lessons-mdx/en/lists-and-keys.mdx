@@ -1,0 +1,486 @@
+# Conditional Rendering & Lists
+
+Rendering the right content at the right time is the core of any dynamic UI. React gives you three tools for conditional output and one pattern for arrays — all using plain JavaScript with no special syntax.
+
+## Ternary: one branch or the other
+
+The ternary operator renders one of two values based on a condition:
+
+```jsx
+{isLoggedIn ? <Dashboard /> : <LoginPrompt />}
+```
+
+Use ternaries when both branches produce output. If the false branch renders nothing, `&&` is cleaner.
+
+You can also ternary between different looks for the same element:
+
+```jsx
+<button className={isActive ? 'btn-primary' : 'btn-ghost'}>
+  {isActive ? 'Active' : 'Inactive'}
+</button>
+```
+
+Keep ternaries in JSX short. When the condition or either branch grows past one line, extract it into a variable before the return:
+
+```jsx
+const content = isLoggedIn ? <Dashboard /> : <LoginPrompt />;
+
+return <main>{content}</main>;
+```
+
+## && short-circuit: render or nothing
+
+When you only want to render something in the true case, short-circuit with `&&`:
+
+```jsx
+{hasError && <ErrorBanner message={error.message} />}
+{isAdmin && <AdminPanel />}
+```
+
+React ignores `false`, `null`, and `undefined` — they produce no DOM output. `&&` works because JavaScript evaluates `false && anything` as `false`, which React skips.
+
+**The 0 trap.** The left operand should be a boolean, not a number. If it's `0`, React renders the digit "0":
+
+```jsx
+// ❌ Renders the string "0" when the array is empty
+{items.length && <List items={items} />}
+
+// ✅ Convert to boolean first
+{items.length > 0 && <List items={items} />}
+
+// ✅ Or use a ternary with null
+{items.length ? <List items={items} /> : null}
+```
+
+The same applies to any falsy number. Keep the left side a strict boolean — `count > 0`, `Boolean(value)`, or a double-bang `!!value`.
+
+## Early return: render nothing at all
+
+A component can return `null` to opt out of rendering entirely. This is useful for guards — components that need a precondition to produce any output:
+
+```jsx
+function SuccessBanner({ message }) {
+  if (!message) return null; // nothing added to the DOM
+
+  return (
+    <div className="banner banner--success">
+      {message}
+    </div>
+  );
+}
+```
+
+Returning `null` does not remove the component from the React tree — hooks still run, subscriptions still fire. It simply produces no DOM nodes. Use it when the component legitimately has nothing to show, not as a way to skip expensive side effects.
+
+## Rendering lists with .map()
+
+To render an array, call `.map()` and return JSX for each item:
+
+```jsx
+const names = ['Alice', 'Bob', 'Carol'];
+
+return (
+  <ul>
+    {names.map(name => (
+      <li key={name}>{name}</li>
+    ))}
+  </ul>
+);
+```
+
+Each item in the `.map()` callback can be as complex as you need — a full component, multiple elements in a Fragment:
+
+```jsx
+{products.map(product => (
+  <React.Fragment key={product.id}>
+    <dt>{product.name}</dt>
+    <dd>{product.price}</dd>
+  </React.Fragment>
+))}
+```
+
+The `.map()` call is just a JavaScript expression — it lives inside `{}` in JSX the same way any expression does.
+
+## Why every list item needs a stable key
+
+React uses keys to track which items changed, were added, or were removed between renders. Without them, React falls back to comparing by position — and that causes subtle, hard-to-debug bugs.
+
+```jsx
+// ❌ No key — React matches items by position
+{items.map(item => <Row label={item.label} />)}
+
+// ✅ Stable key — React tracks each item by identity
+{items.map(item => <Row key={item.id} label={item.label} />)}
+```
+
+### The input-shifts-when-deleting bug
+
+Here's what goes wrong without stable keys. Three rows with uncontrolled inputs, keyed by index:
+
+```
+Index 0 → Alice  [input: ""]
+Index 1 → Bob    [input: "typed text"]   ← user typed something
+Index 2 → Carol  [input: ""]
+```
+
+You delete Bob. React reconciles the new array `[Alice, Carol]` against the old `[Alice, Bob, Carol]` **by position**:
+
+- Position 0 → Alice: same, keep the DOM node.
+- Position 1 → Carol: **was Bob** — React reuses Bob's DOM node for Carol. The input DOM node is reused too, so "typed text" is still in it.
+- Position 2 → gone.
+
+Carol's row now shows Bob's typed content. The DOM state leaked.
+
+With `key={item.id}`:
+
+- key `"alice"` → Alice: same, kept.
+- key `"bob"` → gone: **destroyed with its DOM node**, input cleared.
+- key `"carol"` → Carol: same, untouched.
+
+The correct content stays in the correct row.
+
+<Callout type="info">
+**When index-as-key is safe:** If the list is purely static — never reordered, never items removed from the middle — and rows contain no internal state (no inputs, no focus, no animations), using the array index as a key is fine. Examples: a read-only list of labels, a static reference table, a paginated list that fully replaces on page change. The bug only surfaces when React reuses a DOM node that holds state the user has modified. If none of your rows have internal state, there is nothing to leak.
+</Callout>
+
+**Rules for keys:**
+
+- **Unique** among siblings in the same list (not globally).
+- **Stable** — the same data item must get the same key on every render.
+- **Not the array index** when items can be deleted, added, or reordered.
+
+Good key sources: database IDs, UUIDs, slugs, stable content hashes. If incoming data lacks IDs, attach them before the data enters state — never generate them inside `.map()` with `Math.random()` or `Date.now()`, as a new key on every render is equivalent to no key.
+
+---
+
+## Playground 1 — Login state
+
+`isLoggedIn` toggles between two completely different components. Notice the ternary in `App.js` — one boolean drives the entire view switch. Try extending it: add a `isLoading` state and render a third "Loading…" panel using a nested ternary or early return.
+
+<Playground
+  files={{
+    '/App.js': `import { useState } from 'react';
+import { Dashboard } from './Dashboard';
+import { LoginPrompt } from './LoginPrompt';
+
+export default function App() {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '480px' }}>
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '1.25rem',
+      }}>
+        <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
+          {isLoggedIn ? 'Logged in as Alice' : 'Not logged in'}
+        </span>
+        <button
+          onClick={() => setIsLoggedIn(v => !v)}
+          style={{
+            padding: '0.375rem 0.875rem',
+            background: isLoggedIn ? '#fee2e2' : '#f0fdf4',
+            color: isLoggedIn ? '#dc2626' : '#16a34a',
+            border: 'none',
+            borderRadius: '6px',
+            fontWeight: 600,
+            cursor: 'pointer',
+            fontSize: '0.8rem',
+            fontFamily: 'sans-serif',
+          }}
+        >
+          {isLoggedIn ? 'Log out' : 'Log in'}
+        </button>
+      </div>
+
+      {isLoggedIn ? (
+        <Dashboard name="Alice" />
+      ) : (
+        <LoginPrompt onLogin={() => setIsLoggedIn(true)} />
+      )}
+    </div>
+  );
+}`,
+    '/Dashboard.js': `export function Dashboard({ name }) {
+  const stats = [
+    { label: 'Lessons',  value: '4'   },
+    { label: 'Streak',   value: '7d'  },
+    { label: 'Progress', value: '32%' },
+  ];
+
+  return (
+    <div style={{
+      padding: '1.5rem',
+      background: 'white',
+      border: '1px solid #e2e8f0',
+      borderRadius: '8px',
+      fontFamily: 'sans-serif',
+    }}>
+      <p style={{ margin: '0 0 0.25rem', fontSize: '1.125rem', fontWeight: 700 }}>
+        Welcome back, {name}!
+      </p>
+      <p style={{ margin: '0 0 1.25rem', color: '#64748b', fontSize: '0.875rem' }}>
+        Here's what's happening today.
+      </p>
+      <div style={{ display: 'flex', gap: '0.75rem' }}>
+        {stats.map(stat => (
+          <div key={stat.label} style={{
+            flex: 1, padding: '0.75rem', background: '#f8fafc',
+            borderRadius: '6px', textAlign: 'center',
+          }}>
+            <p style={{ margin: '0 0 0.25rem', fontSize: '1.25rem', fontWeight: 700, color: 'rebeccapurple' }}>
+              {stat.value}
+            </p>
+            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b' }}>{stat.label}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}`,
+    '/LoginPrompt.js': `export function LoginPrompt({ onLogin }) {
+  return (
+    <div style={{
+      padding: '2rem 1.5rem',
+      background: 'white',
+      border: '1px solid #e2e8f0',
+      borderRadius: '8px',
+      fontFamily: 'sans-serif',
+      textAlign: 'center',
+    }}>
+      <p style={{ margin: '0 0 0.25rem', fontSize: '1.125rem', fontWeight: 700 }}>
+        Sign in to continue
+      </p>
+      <p style={{ margin: '0 0 1.5rem', color: '#64748b', fontSize: '0.875rem' }}>
+        Access your lessons and track your progress.
+      </p>
+      <button
+        onClick={onLogin}
+        style={{
+          padding: '0.5rem 1.5rem',
+          background: 'rebeccapurple',
+          color: 'white',
+          border: 'none',
+          borderRadius: '6px',
+          fontWeight: 600,
+          cursor: 'pointer',
+          fontSize: '0.875rem',
+          fontFamily: 'sans-serif',
+        }}
+      >
+        Log in
+      </button>
+    </div>
+  );
+}`,
+  }}
+  activeFile="/App.js"
+/>
+
+## Playground 2 — Key bugs side by side
+
+Both panels render the same list and the same `Row` component (with an uncontrolled input). The only difference is the key: index on the left, stable ID on the right.
+
+**Experiment:** type something into Bob's input in *both* panels, then click × next to Bob. In the left panel Carol's row now shows Bob's text — the DOM state leaked. In the right panel Carol's row is unaffected.
+
+<Playground
+  files={{
+    '/App.js': `import { useState } from 'react';
+
+const INITIAL = [
+  { id: 'alice', label: 'Alice' },
+  { id: 'bob',   label: 'Bob'   },
+  { id: 'carol', label: 'Carol' },
+];
+
+function Row({ label, onDelete }) {
+  return (
+    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem' }}>
+      <input
+        defaultValue={label}
+        style={{
+          padding: '0.375rem 0.5rem',
+          border: '1px solid #cbd5e1',
+          borderRadius: '4px',
+          fontSize: '0.8rem',
+          width: '90px',
+          fontFamily: 'sans-serif',
+        }}
+      />
+      <button
+        onClick={onDelete}
+        style={{
+          background: 'none', border: 'none',
+          color: '#94a3b8', cursor: 'pointer',
+          fontSize: '1.125rem', lineHeight: 1, padding: '0 0.2rem',
+        }}
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
+export default function App() {
+  const [items, setItems] = useState(INITIAL);
+
+  function remove(id) {
+    setItems(prev => prev.filter(item => item.id !== id));
+  }
+
+  const panel = (bad) => ({
+    flex: 1,
+    padding: '1rem',
+    background: '#f8fafc',
+    borderRadius: '6px',
+    border: '1px solid ' + (bad ? '#fecaca' : '#bbf7d0'),
+  });
+
+  const title = (bad) => ({
+    margin: '0 0 0.75rem',
+    fontSize: '0.8rem',
+    fontWeight: 700,
+    color: bad ? '#dc2626' : '#16a34a',
+    fontFamily: 'sans-serif',
+  });
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '1.5rem' }}>
+      <p style={{ margin: '0 0 1rem', fontSize: '0.8rem', color: '#64748b' }}>
+        Type in Bob's input, then delete Bob. Watch what happens in each panel.
+      </p>
+      <div style={{ display: 'flex', gap: '1rem' }}>
+        <div style={panel(true)}>
+          <p style={title(true)}>key=index ❌</p>
+          {items.map((item, i) => (
+            <Row key={i} label={item.label} onDelete={() => remove(item.id)} />
+          ))}
+        </div>
+        <div style={panel(false)}>
+          <p style={title(false)}>key=id ✅</p>
+          {items.map(item => (
+            <Row key={item.id} label={item.label} onDelete={() => remove(item.id)} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}`,
+  }}
+  activeFile="/App.js"
+/>
+
+## Playground 3 — Filter / search
+
+`results` is derived from `USERS` and `query` on every render — no separate state needed for the filtered list. Because `results` is always in sync with both, the `&&` / ternary for the empty state works automatically. Try adding a role filter (a second input or a set of toggle buttons) alongside the name search.
+
+<Playground
+  files={{
+    '/App.js': `import { useState } from 'react';
+
+const USERS = [
+  { id: 1, name: 'Alice Johnson', role: 'Admin'  },
+  { id: 2, name: 'Bob Smith',     role: 'Member' },
+  { id: 3, name: 'Carol Davis',   role: 'Guest'  },
+  { id: 4, name: 'David Lee',     role: 'Member' },
+  { id: 5, name: 'Eve Martinez',  role: 'Admin'  },
+];
+
+const BADGE = {
+  Admin:  { bg: '#dcfce7', text: '#16a34a' },
+  Member: { bg: '#dbeafe', text: '#2563eb' },
+  Guest:  { bg: '#fef9c3', text: '#ca8a04' },
+};
+
+export default function App() {
+  const [query, setQuery] = useState('');
+
+  const results = USERS.filter(user =>
+    user.name.toLowerCase().includes(query.toLowerCase())
+  );
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '400px' }}>
+      <input
+        value={query}
+        onChange={e => setQuery(e.target.value)}
+        placeholder="Search users…"
+        style={{
+          width: '100%',
+          padding: '0.5rem 0.75rem',
+          border: '1px solid #e2e8f0',
+          borderRadius: '6px',
+          fontSize: '0.875rem',
+          fontFamily: 'sans-serif',
+          outline: 'none',
+          boxSizing: 'border-box',
+          marginBottom: '1rem',
+        }}
+      />
+
+      {results.length === 0 ? (
+        <p style={{ color: '#94a3b8', fontSize: '0.875rem', textAlign: 'center', margin: '2rem 0' }}>
+          No users match "{query}"
+        </p>
+      ) : (
+        <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          {results.map(user => {
+            const { bg, text } = BADGE[user.role];
+            return (
+              <li
+                key={user.id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '0.625rem 0.875rem',
+                  background: 'white',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '6px',
+                }}
+              >
+                <span style={{ fontWeight: 500, fontSize: '0.875rem' }}>{user.name}</span>
+                <span style={{
+                  background: bg, color: text,
+                  padding: '0.2rem 0.6rem',
+                  borderRadius: '999px',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                }}>
+                  {user.role}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      <p style={{ color: '#94a3b8', fontSize: '0.75rem', marginTop: '0.75rem', textAlign: 'right' }}>
+        {results.length} of {USERS.length} users
+      </p>
+    </div>
+  );
+}`,
+  }}
+  activeFile="/App.js"
+/>
+
+---
+
+## Key takeaways
+
+<Callout type="tip">
+**Three tools for conditional output.** Ternary (`condition ? a : b`) when both branches render something. `&&` when only the true branch renders something — but keep the left side a boolean to avoid the "0 renders as text" trap. Early `return null` when a component has nothing to show at all.
+
+**`.map()` is the only list primitive.** Return JSX from the callback; the resulting array drops into `{}` like any expression. Extract the callback into a named function when it grows past two or three lines.
+
+**Keys are identity, not order.** React uses keys to match items across renders. Without stable keys, React reconciles by position — reusing DOM nodes for the wrong items and leaking state (like typed input values) into the wrong rows.
+
+**Use database IDs, slugs, or UUIDs as keys.** Never `Math.random()` or `Date.now()` inside `.map()` — a new key on every render destroys and recreates the DOM node on every render. The array index is safe only when the list is static and rows carry no internal state.
+</Callout>
+
+---
+
+**References:** [Conditional Rendering](https://react.dev/learn/conditional-rendering) · [Rendering Lists](https://react.dev/learn/rendering-lists)

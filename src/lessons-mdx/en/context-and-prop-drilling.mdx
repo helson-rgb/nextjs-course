@@ -1,0 +1,489 @@
+# Custom Hooks, useReducer & Context
+
+This lesson is the capstone of the React Fundamentals chapter. Custom hooks, `useReducer`, and Context are the three tools that let you tame complexity as a React app grows: extract repeated logic, model state transitions explicitly, and share data without threading props through every level of the tree.
+
+## Extracting logic into custom hooks
+
+A custom hook is a JavaScript function whose name starts with `use` and that calls at least one other hook inside it. That's it — no special API, no registration. You write it, you call it, React treats it like any other hook call.
+
+```jsx
+// useToggle — boolean state with a stable flip function
+import { useState, useCallback } from 'react';
+
+export function useToggle(initial = false) {
+  const [on, setOn] = useState(initial);
+  const toggle = useCallback(() => setOn(v => !v), []);
+  return [on, toggle];
+}
+
+// Usage — identical state behaviour, zero boilerplate
+const [menuOpen, toggleMenu] = useToggle();
+const [isDark, toggleDark] = useToggle();
+```
+
+Each component that calls `useToggle` gets its own independent state — hooks are not shared instances. The value of extraction is reusing the *logic*, not sharing the *state*.
+
+### useLocalStorage
+
+Persisting state to `localStorage` requires an initialiser that reads from storage, and an effect that writes back. Extract that once:
+
+```jsx
+import { useState, useEffect } from 'react';
+
+export function useLocalStorage(key, initialValue) {
+  const [value, setValue] = useState(() => {
+    // lazy initialiser — runs once on mount
+    try {
+      const stored = window.localStorage.getItem(key);
+      return stored !== null ? JSON.parse(stored) : initialValue;
+    } catch {
+      return initialValue;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(key, JSON.stringify(value));
+    } catch {}
+  }, [key, value]);
+
+  return [value, setValue];
+}
+```
+
+Drop-in replacement for `useState`:
+
+```jsx
+// Before
+const [theme, setTheme] = useState('light');
+
+// After — persists across page loads
+const [theme, setTheme] = useLocalStorage('theme', 'light');
+```
+
+### useDebounce
+
+Search inputs that fire a network request on every keystroke are wasteful. `useDebounce` delays updating a value until the user pauses:
+
+```jsx
+import { useState, useEffect } from 'react';
+
+export function useDebounce(value, delay = 300) {
+  const [debounced, setDebounced] = useState(value);
+
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(id); // cancel if value changes before delay
+  }, [value, delay]);
+
+  return debounced;
+}
+
+// Usage
+const query = useDebounce(inputValue, 400); // only updates after 400ms pause
+useEffect(() => {
+  if (query) fetchResults(query);
+}, [query]);
+```
+
+The cleanup function cancels the pending timeout on every keystroke — only the final one, after the user stops typing, fires.
+
+### Rules inside custom hooks
+
+Custom hooks follow the same rules as regular hooks: call them at the top level, never inside conditions or loops. Because custom hooks call hooks themselves, React's call-order guarantee applies to everything inside them.
+
+## When useReducer beats useState
+
+`useReducer` takes a reducer function and an initial state, returns the current state and a `dispatch` function:
+
+```jsx
+const [state, dispatch] = useReducer(reducer, initialState);
+dispatch({ type: 'ADD', payload: newItem });
+```
+
+The reducer is a pure function: `(currentState, action) => nextState`. It lives outside the component, accepts any action object, and returns a new state.
+
+**Reach for `useReducer` when:**
+
+- Several `useState` calls always update together (a form with 5 fields).
+- The next state depends on complex conditions across multiple existing fields.
+- You want to test state transitions in isolation — the reducer is a plain function, easily unit-tested.
+- The same state is modified by many different events, and you want a single place to see all transitions.
+
+Compare the same todo list expressed two ways:
+
+```jsx
+// useState — scattered, hard to see all transitions at once
+const [todos, setTodos] = useState([]);
+const [filter, setFilter] = useState('all');
+
+function addTodo(text)  { setTodos(prev => [...prev, { id: Date.now(), text, done: false }]); }
+function toggleTodo(id) { setTodos(prev => prev.map(t => t.id === id ? {...t, done: !t.done} : t)); }
+function removeTodo(id) { setTodos(prev => prev.filter(t => t.id !== id)); }
+function clearDone()    { setTodos(prev => prev.filter(t => !t.done)); }
+```
+
+```jsx
+// useReducer — all transitions in one place, named and explicit
+function todosReducer(state, action) {
+  switch (action.type) {
+    case 'add':
+      return [...state, { id: Date.now(), text: action.text, done: false }];
+    case 'toggle':
+      return state.map(t => t.id === action.id ? { ...t, done: !t.done } : t);
+    case 'remove':
+      return state.filter(t => t.id !== action.id);
+    case 'clear_done':
+      return state.filter(t => !t.done);
+    default:
+      throw new Error('Unknown action: ' + action.type);
+  }
+}
+
+const [todos, dispatch] = useReducer(todosReducer, []);
+dispatch({ type: 'add', text: 'Buy milk' });
+dispatch({ type: 'toggle', id: 3 });
+```
+
+The `default: throw` is intentional — unknown actions are programmer errors, not runtime conditions.
+
+## Context: shared state without prop drilling
+
+Prop drilling — passing the same value through 4 intermediate components that don't use it — is a sign that context might help:
+
+```jsx
+// Drilling theme through every layer
+<App theme={theme}>
+  <Layout theme={theme}>
+    <Sidebar theme={theme}>
+      <Button theme={theme} /> {/* finally used here */}
+    </Sidebar>
+  </Layout>
+</App>
+```
+
+Context provides a value at any point in the tree and makes it available to any descendant that asks — without props:
+
+```jsx
+import { createContext, useContext, useState } from 'react';
+
+// 1. Create the context — null is the sentinel for "missing provider"
+const ThemeContext = createContext(null);
+
+// 2. The provider owns the state and distributes it
+export function ThemeProvider({ children }) {
+  const [theme, setTheme] = useState('light');
+  return (
+    <ThemeContext.Provider value={{ theme, setTheme }}>
+      {children}
+    </ThemeContext.Provider>
+  );
+}
+
+// 3. A custom hook validates the context and exposes a clean API
+export function useTheme() {
+  const ctx = useContext(ThemeContext);
+  if (!ctx) throw new Error('useTheme must be used inside <ThemeProvider>');
+  return ctx;
+}
+```
+
+Any component inside `<ThemeProvider>` can call `useTheme()` — no matter how deep:
+
+```jsx
+function Button() {
+  const { theme } = useTheme(); // reads from context
+  return <button className={'btn btn--' + theme}>Click</button>;
+}
+```
+
+<Callout type="warn">
+**Context re-renders every consumer on every value change.** When the `ThemeProvider`'s state updates, React re-renders *every* component that called `useContext(ThemeContext)` — even if it only uses a field that didn't change. This is fine for slowly changing data (theme, locale, current user). It is the wrong tool for high-frequency state (position, scroll offset, a real-time ticker) — use a dedicated state library like Zustand or Jotai for those.
+
+Context is a *distribution mechanism*, not a state management library. It solves prop drilling; it doesn't replace Redux.
+</Callout>
+
+**When context is the right tool:**
+- App locale / language (changes at most once per session).
+- Theme (light / dark).
+- Authenticated user (changes on login/logout only).
+- App-wide settings that rarely update.
+
+**When it is not:**
+- State shared by just 2–3 adjacent components — lift state to their nearest common parent instead.
+- Frequently updating derived data — component composition with `children` often solves prop drilling without any context at all.
+
+---
+
+## Playground 1 — useLocalStorage theme toggle
+
+`useLocalStorage` is a drop-in replacement for `useState`. The hook reads the initial value from `localStorage` (lazy initialiser), and an effect writes it back on every change. Refresh the preview — the selected theme survives the reload. Try extending it: add a `'system'` option that reads `prefers-color-scheme`.
+
+<Playground
+  files={{
+    '/useLocalStorage.js': `import { useState, useEffect } from 'react';
+
+export function useLocalStorage(key, initialValue) {
+  const [value, setValue] = useState(() => {
+    try {
+      const stored = window.localStorage.getItem(key);
+      return stored !== null ? JSON.parse(stored) : initialValue;
+    } catch {
+      return initialValue;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(key, JSON.stringify(value));
+    } catch {}
+  }, [key, value]);
+
+  return [value, setValue];
+}`,
+    '/App.js': `import { useLocalStorage } from './useLocalStorage';
+
+const THEMES = {
+  light: { bg: '#f8fafc', fg: '#0f172a', card: 'white',   border: '#e2e8f0' },
+  dark:  { bg: '#0f172a', fg: '#e2e8f0', card: '#1e293b', border: '#334155' },
+};
+
+export default function App() {
+  const [theme, setTheme] = useLocalStorage('sandbox-theme', 'light');
+  const c = THEMES[theme];
+
+  return (
+    <div style={{ background: c.bg, color: c.fg, minHeight: '100vh', padding: '2rem', transition: 'all 0.2s', fontFamily: 'sans-serif' }}>
+      <div style={{ background: c.card, border: '1px solid ' + c.border, borderRadius: '8px', padding: '1.5rem', maxWidth: '340px' }}>
+        <p style={{ margin: '0 0 0.375rem', fontWeight: 700 }}>Current theme: {theme}</p>
+        <p style={{ margin: '0 0 1.25rem', fontSize: '0.8rem', opacity: 0.6 }}>
+          Refresh the preview — the choice persists in localStorage.
+        </p>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          {Object.keys(THEMES).map(t => (
+            <button
+              key={t}
+              onClick={() => setTheme(t)}
+              style={{
+                flex: 1, padding: '0.5rem', borderRadius: '6px',
+                border: '1px solid ' + c.border,
+                background: theme === t ? 'rebeccapurple' : c.card,
+                color: theme === t ? 'white' : c.fg,
+                fontWeight: 600, cursor: 'pointer',
+                fontSize: '0.875rem', fontFamily: 'sans-serif',
+                transition: 'all 0.15s',
+              }}
+            >
+              {t === 'light' ? '☀ Light' : '☽ Dark'}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}`,
+  }}
+  activeFile="/useLocalStorage.js"
+/>
+
+## Playground 2 — Todo list with useReducer
+
+The reducer lives in `todosReducer.js` — all state transitions in one place, each named and explicit. The component in `App.js` only calls `dispatch` with action objects; it contains no mutation logic itself. Try adding a new action type `'edit'` that updates a todo's text field.
+
+<Playground
+  files={{
+    '/todosReducer.js': `export const initialState = [
+  { id: 1, text: 'Read the React docs', done: true  },
+  { id: 2, text: 'Build a todo app',    done: false },
+  { id: 3, text: 'Learn useReducer',    done: false },
+];
+
+export function todosReducer(state, action) {
+  switch (action.type) {
+    case 'add':
+      return [...state, { id: Date.now(), text: action.text, done: false }];
+    case 'toggle':
+      return state.map(t => t.id === action.id ? { ...t, done: !t.done } : t);
+    case 'remove':
+      return state.filter(t => t.id !== action.id);
+    case 'clear_done':
+      return state.filter(t => !t.done);
+    default:
+      throw new Error('Unknown action: ' + action.type);
+  }
+}`,
+    '/App.js': `import { useReducer, useState } from 'react';
+import { todosReducer, initialState } from './todosReducer';
+
+export default function App() {
+  const [todos, dispatch] = useReducer(todosReducer, initialState);
+  const [input, setInput] = useState('');
+
+  function handleAdd(e) {
+    e.preventDefault();
+    const text = input.trim();
+    if (!text) return;
+    dispatch({ type: 'add', text });
+    setInput('');
+  }
+
+  const doneCount = todos.filter(t => t.done).length;
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '400px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+        <h2 style={{ margin: 0, fontSize: '1.125rem', fontWeight: 700 }}>Tasks</h2>
+        <span style={{ fontSize: '0.8rem', color: '#64748b' }}>{doneCount} / {todos.length} done</span>
+      </div>
+
+      <form onSubmit={handleAdd} style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+        <input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          placeholder="Add a task…"
+          style={{ flex: 1, padding: '0.5rem 0.75rem', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.875rem', fontFamily: 'sans-serif', outline: 'none' }}
+        />
+        <button type="submit" style={{ padding: '0.5rem 1rem', background: 'rebeccapurple', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer', fontSize: '0.875rem', fontFamily: 'sans-serif' }}>
+          Add
+        </button>
+      </form>
+
+      <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        {todos.map(todo => (
+          <li key={todo.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.625rem 0.875rem', background: 'white', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
+            <input
+              type="checkbox"
+              checked={todo.done}
+              onChange={() => dispatch({ type: 'toggle', id: todo.id })}
+              style={{ width: '1rem', height: '1rem', cursor: 'pointer', accentColor: 'rebeccapurple' }}
+            />
+            <span style={{ flex: 1, fontSize: '0.875rem', textDecoration: todo.done ? 'line-through' : 'none', color: todo.done ? '#94a3b8' : '#0f172a' }}>
+              {todo.text}
+            </span>
+            <button
+              onClick={() => dispatch({ type: 'remove', id: todo.id })}
+              style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '1.125rem', lineHeight: 1, padding: '0 0.2rem' }}
+            >×</button>
+          </li>
+        ))}
+      </ul>
+
+      {doneCount > 0 && (
+        <button
+          onClick={() => dispatch({ type: 'clear_done' })}
+          style={{ width: '100%', padding: '0.5rem', background: 'transparent', color: '#64748b', border: '1px solid #e2e8f0', borderRadius: '6px', fontFamily: 'sans-serif', fontSize: '0.8rem', cursor: 'pointer' }}
+        >
+          Clear {doneCount} completed
+        </button>
+      )}
+    </div>
+  );
+}`,
+  }}
+  activeFile="/todosReducer.js"
+/>
+
+## Playground 3 — ThemeContext
+
+`ThemeProvider` owns the state; `ThemeToggle` and `ColorSwatch` both read from `ThemeContext` via `useTheme()` — no props passed between them. Notice the provider sits at the root in `App.js`. Move it inside one of the consumer components and watch the `useTheme` guard throw. Try adding a fifth theme or persisting the selection with `useLocalStorage`.
+
+<Playground
+  files={{
+    '/ThemeContext.js': `import { createContext, useContext, useState } from 'react';
+
+const ThemeContext = createContext(null);
+
+export const PALETTES = {
+  light:  { label: 'Light',  bg: '#f8fafc', fg: '#0f172a', accent: '#7c3aed' },
+  dark:   { label: 'Dark',   bg: '#0f172a', fg: '#e2e8f0', accent: '#c4b5fd' },
+  forest: { label: 'Forest', bg: '#052e16', fg: '#dcfce7', accent: '#4ade80' },
+  ocean:  { label: 'Ocean',  bg: '#0c4a6e', fg: '#e0f2fe', accent: '#38bdf8' },
+};
+
+export function ThemeProvider({ children }) {
+  const [theme, setTheme] = useState('light');
+  return (
+    <ThemeContext.Provider value={{ theme, setTheme }}>
+      {children}
+    </ThemeContext.Provider>
+  );
+}
+
+export function useTheme() {
+  const ctx = useContext(ThemeContext);
+  if (!ctx) throw new Error('useTheme must be used inside <ThemeProvider>');
+  return ctx;
+}`,
+    '/App.js': `import { ThemeProvider, useTheme, PALETTES } from './ThemeContext';
+
+function ThemeToggle() {
+  const { theme, setTheme } = useTheme();
+  return (
+    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+      {Object.entries(PALETTES).map(([key, { label, accent }]) => (
+        <button
+          key={key}
+          onClick={() => setTheme(key)}
+          style={{
+            padding: '0.375rem 0.75rem', borderRadius: '6px',
+            border: theme === key ? '2px solid white' : '1px solid rgba(255,255,255,0.2)',
+            background: accent, color: key === 'light' ? '#0f172a' : 'white',
+            fontWeight: theme === key ? 700 : 400,
+            cursor: 'pointer', fontSize: '0.8rem', fontFamily: 'sans-serif',
+          }}
+        >{label}</button>
+      ))}
+    </div>
+  );
+}
+
+function ColorSwatch() {
+  const { theme } = useTheme();
+  const { label, accent, bg, fg } = PALETTES[theme];
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.75rem 1rem', background: bg, color: fg, borderRadius: '6px', marginTop: '1rem', fontFamily: 'sans-serif', fontSize: '0.875rem', border: '1px solid rgba(255,255,255,0.1)' }}>
+      <div style={{ width: '2rem', height: '2rem', borderRadius: '50%', background: accent, flexShrink: 0 }} />
+      <div>
+        <p style={{ margin: 0, fontWeight: 700 }}>{label} theme</p>
+        <p style={{ margin: 0, fontSize: '0.75rem', opacity: 0.7 }}>{accent}</p>
+      </div>
+    </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ThemeProvider>
+      <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '380px' }}>
+        <p style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', color: '#64748b' }}>
+          ThemeToggle and ColorSwatch share context — no props between them.
+        </p>
+        <ThemeToggle />
+        <ColorSwatch />
+      </div>
+    </ThemeProvider>
+  );
+}`,
+  }}
+  activeFile="/ThemeContext.js"
+/>
+
+---
+
+## Key takeaways
+
+<Callout type="tip">
+**A custom hook is just a function that calls hooks.** Name it `use*`, extract the state + effects + logic from your component, return whatever the caller needs. Each component that calls the hook gets its own independent state.
+
+**`useLocalStorage` is `useState` with persistence.** The lazy initialiser reads from storage once; the effect writes back on every change. It is a drop-in replacement: `const [x, setX] = useLocalStorage('key', default)`.
+
+**`useReducer` centralises all transitions.** When a component has many ways to update the same state, pull them into a reducer. The reducer is pure, testable, and readable — every transition is visible in one `switch` statement.
+
+**Context distributes; it does not manage.** Use it for slowly changing shared values (theme, locale, user). Every context value change re-renders all consumers — keep context values stable and prefer splitting contexts by update frequency.
+
+**Always wrap `useContext` in a custom hook with a null guard.** `if (!ctx) throw new Error(...)` catches components accidentally rendered outside their provider — a runtime error is far easier to debug than a silent `undefined`.
+</Callout>
+
+---
+
+**References:** [Reusing Logic with Custom Hooks](https://react.dev/learn/reusing-logic-with-custom-hooks) · [Extracting State Logic into a Reducer](https://react.dev/learn/extracting-state-logic-into-a-reducer) · [Passing Data Deeply with Context](https://react.dev/learn/passing-data-deeply-with-context) · [useReducer](https://react.dev/reference/react/useReducer) · [useContext](https://react.dev/reference/react/useContext)

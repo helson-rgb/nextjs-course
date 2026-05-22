@@ -1,0 +1,408 @@
+# Server vs Client Components
+
+Questo è il cambiamento concettuale più importante nell'App Router di Next.js. Ogni componente che scrivi è un Server Component o un Client Component, e la distinzione cambia dove viene eseguito, cosa può fare e quanto JavaScript viene inviato al browser.
+
+## I componenti sono Server per impostazione predefinita
+
+Nell'App Router, ogni componente è un Server Component a meno che tu non dica diversamente. I Server Components vengono eseguiti sul server durante la richiesta (o al build time per le pagine statiche). Vengono renderizzati in HTML e in un formato serializzato leggero chiamato RSC Payload — **nessun JavaScript per loro viene mai inviato al browser**.
+
+```jsx
+// src/app/page.js — Server Component (nessuna direttiva necessaria)
+export default async function HomePage() {
+  const data = await fetch('https://api.example.com/stats');  // viene eseguito sul server
+  const stats = await data.json();
+  return <h1>Utenti totali: {stats.count}</h1>;
+}
+```
+
+L'`async/await` qui non è un trucco — è una funzione asincrona standard. Il server la attende prima di inviare l'HTML al client.
+
+## La direttiva 'use client'
+
+`'use client'` è un letterale stringa in cima a un file. Dice a Next.js (e a React) che questo file — e ogni componente importato da esso — viene eseguito nel browser:
+
+```jsx
+'use client';
+
+import { useState } from 'react';
+
+export function Counter() {
+  const [count, setCount] = useState(0);
+  return <button onClick={() => setCount(c => c + 1)}>{count}</button>;
+}
+```
+
+`'use client'` disegna un **confine**, non un marcatore "solo questo file". Tutto ciò che viene importato al di sotto di esso — componenti, utility, pacchetti di terze parti — diventa parte del bundle client. Il confine si propaga verso il basso attraverso l'albero delle importazioni.
+
+<Callout type="warn">
+`'use client'` non significa "questo componente viene eseguito solo nel browser". Significa "questo file è la radice di un sottoalbero client". Qualsiasi componente importato all'interno di un file `'use client'` è anch'esso un Client Component, anche se non ha la direttiva.
+</Callout>
+
+## Cosa viene eseguito dove
+
+Le capacità di ciascun ambiente sono fondamentalmente diverse:
+
+| Capacità | Server Component | Client Component |
+|---|---|---|
+| `async/await` al livello superiore | ✅ | ❌ (usa `useEffect`) |
+| Accesso diretto a database/filesystem | ✅ | ❌ |
+| Usare segreti d'ambiente (`process.env`) | ✅ | ❌ (esposto al browser) |
+| `useState`, `useReducer` | ❌ | ✅ |
+| `useEffect`, `useRef` | ❌ | ✅ |
+| API del browser (`window`, `document`, `localStorage`) | ❌ | ✅ |
+| Handler degli eventi (`onClick`, `onChange`) | ❌ | ✅ |
+| Invia JavaScript al browser | ❌ (nessuno) | ✅ |
+
+Il vantaggio zero-JS è reale. Una pagina con un elenco di prodotti, un articolo markdown o un grafico dashboard che non richiede mai interattività può essere renderizzata come puro HTML. L'utente non scarica alcun codice di componente React — First Contentful Paint più veloce, bundle più piccolo, idratazione meno costosa.
+
+## Tre diagrammi: i confini dell'albero dei componenti
+
+I diagrammi qui sotto mostrano come funziona il confine server/client in un albero di componenti. I nodi blu sono Server Components; i nodi rosa/viola sono Client Components.
+
+### Diagramma 1 — Albero server con un'isola client
+
+<svg viewBox="0 0 560 280" xmlns="http://www.w3.org/2000/svg" style={{display:'block',maxWidth:'100%',background:'white',borderRadius:'8px',border:'1px solid #e2e8f0',padding:'16px'}}>
+  <defs>
+    <marker id="arrow1" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+  {/* Page (server) */}
+  <rect x="200" y="20" width="160" height="40" rx="8" fill="#dbeafe" stroke="#3b82f6" strokeWidth="1.5"/>
+  <text x="280" y="45" textAnchor="middle" fontSize="13" fontFamily="monospace" fill="#1e40af">Page (server)</text>
+  {/* Left child server */}
+  <rect x="60" y="120" width="160" height="40" rx="8" fill="#dbeafe" stroke="#3b82f6" strokeWidth="1.5"/>
+  <text x="140" y="145" textAnchor="middle" fontSize="13" fontFamily="monospace" fill="#1e40af">Article (server)</text>
+  {/* Right child client */}
+  <rect x="340" y="120" width="160" height="40" rx="8" fill="#fdf4ff" stroke="#a21caf" strokeWidth="1.5"/>
+  <text x="420" y="145" textAnchor="middle" fontSize="13" fontFamily="monospace" fill="#86198f">LikeButton ★</text>
+  {/* Arrows */}
+  <line x1="248" y1="60" x2="180" y2="120" stroke="#94a3b8" strokeWidth="1.5" markerEnd="url(#arrow1)"/>
+  <line x1="312" y1="60" x2="370" y2="120" stroke="#94a3b8" strokeWidth="1.5" markerEnd="url(#arrow1)"/>
+  {/* Legend */}
+  <rect x="60" y="220" width="14" height="14" rx="3" fill="#dbeafe" stroke="#3b82f6" strokeWidth="1.5"/>
+  <text x="80" y="232" fontSize="12" fontFamily="sans-serif" fill="#64748b">Server Component (nessun JS inviato)</text>
+  <rect x="60" y="244" width="14" height="14" rx="3" fill="#fdf4ff" stroke="#a21caf" strokeWidth="1.5"/>
+  <text x="80" y="256" fontSize="12" fontFamily="sans-serif" fill="#64748b">Client Component (JS inviato) ★</text>
+</svg>
+
+`Page` e `Article` vengono eseguiti sul server — zero JS per loro nel bundle del browser. `LikeButton` ha bisogno di `useState` per il contatore dei like, quindi diventa un Client Component. Il confine è all'importazione di `LikeButton`.
+
+### Diagramma 2 — Il confine si propaga verso il basso
+
+<svg viewBox="0 0 560 320" xmlns="http://www.w3.org/2000/svg" style={{display:'block',maxWidth:'100%',background:'white',borderRadius:'8px',border:'1px solid #e2e8f0',padding:'16px',marginTop:'12px'}}>
+  <defs>
+    <marker id="arrow2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+  {/* Sidebar — client */}
+  <rect x="160" y="20" width="240" height="40" rx="8" fill="#fdf4ff" stroke="#a21caf" strokeWidth="2"/>
+  <text x="280" y="45" textAnchor="middle" fontSize="13" fontFamily="monospace" fill="#86198f">Sidebar 'use client' ★</text>
+  {/* NavLink — becomes client even without directive */}
+  <rect x="80" y="120" width="180" height="40" rx="8" fill="#fdf4ff" stroke="#a21caf" strokeWidth="1.5" strokeDasharray="5,3"/>
+  <text x="170" y="138" textAnchor="middle" fontSize="12" fontFamily="monospace" fill="#86198f">NavLink</text>
+  <text x="170" y="154" textAnchor="middle" fontSize="10" fontFamily="sans-serif" fill="#a21caf">(nessuna direttiva — ma è client)</text>
+  {/* Icon — also client */}
+  <rect x="300" y="120" width="180" height="40" rx="8" fill="#fdf4ff" stroke="#a21caf" strokeWidth="1.5" strokeDasharray="5,3"/>
+  <text x="390" y="138" textAnchor="middle" fontSize="12" fontFamily="monospace" fill="#86198f">Icon</text>
+  <text x="390" y="154" textAnchor="middle" fontSize="10" fontFamily="sans-serif" fill="#a21caf">(importato da client — anche client)</text>
+  {/* Arrows */}
+  <line x1="236" y1="60" x2="190" y2="120" stroke="#a21caf" strokeWidth="1.5" strokeDasharray="4,2" markerEnd="url(#arrow2)"/>
+  <line x1="324" y1="60" x2="360" y2="120" stroke="#a21caf" strokeWidth="1.5" strokeDasharray="4,2" markerEnd="url(#arrow2)"/>
+  {/* Note */}
+  <rect x="80" y="220" width="400" height="54" rx="6" fill="#fff7ed" stroke="#fdba74" strokeWidth="1"/>
+  <text x="280" y="240" textAnchor="middle" fontSize="12" fontFamily="sans-serif" fill="#9a3412">Il confine 'use client' si estende a tutte le importazioni.</text>
+  <text x="280" y="258" textAnchor="middle" fontSize="12" fontFamily="sans-serif" fill="#9a3412">NavLink e Icon vengono inviati al browser anche senza</text>
+  <text x="280" y="274" textAnchor="middle" fontSize="12" fontFamily="sans-serif" fill="#9a3412">direttiva, perché si trovano in un sottoalbero client.</text>
+</svg>
+
+### Diagramma 3 — Server component passato come children a un client
+
+<svg viewBox="0 0 560 320" xmlns="http://www.w3.org/2000/svg" style={{display:'block',maxWidth:'100%',background:'white',borderRadius:'8px',border:'1px solid #e2e8f0',padding:'16px',marginTop:'12px'}}>
+  <defs>
+    <marker id="arrow3" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+  {/* Page server */}
+  <rect x="180" y="16" width="200" height="40" rx="8" fill="#dbeafe" stroke="#3b82f6" strokeWidth="1.5"/>
+  <text x="280" y="41" textAnchor="middle" fontSize="13" fontFamily="monospace" fill="#1e40af">Page (server)</text>
+  {/* ThemeProvider client */}
+  <rect x="130" y="110" width="300" height="40" rx="8" fill="#fdf4ff" stroke="#a21caf" strokeWidth="2"/>
+  <text x="280" y="135" textAnchor="middle" fontSize="13" fontFamily="monospace" fill="#86198f">ThemeProvider 'use client' ★</text>
+  {/* Article — server, passed as children */}
+  <rect x="165" y="210" width="230" height="40" rx="8" fill="#dbeafe" stroke="#3b82f6" strokeWidth="1.5"/>
+  <text x="280" y="228" textAnchor="middle" fontSize="12" fontFamily="monospace" fill="#1e40af">Article (server)</text>
+  <text x="280" y="244" textAnchor="middle" fontSize="10" fontFamily="sans-serif" fill="#1d4ed8">passato come prop children ✓</text>
+  {/* Arrows */}
+  <line x1="280" y1="56" x2="280" y2="110" stroke="#94a3b8" strokeWidth="1.5" markerEnd="url(#arrow3)"/>
+  <line x1="280" y1="150" x2="280" y2="210" stroke="#94a3b8" strokeWidth="1.5" markerEnd="url(#arrow3)"/>
+  {/* Note */}
+  <text x="280" y="295" textAnchor="middle" fontSize="12" fontFamily="sans-serif" fill="#64748b">Article viene renderizzato sul server. ThemeProvider lo avvolge</text>
+  <text x="280" y="311" textAnchor="middle" fontSize="12" fontFamily="sans-serif" fill="#64748b">senza trascinarlo nel bundle client.</text>
+</svg>
+
+## Il pattern di interleaving
+
+Un Client Component non può importare un Server Component — farlo trascinerebbe codice solo-server nel bundle client. Ma un Server Component può passare un altro Server Component a un Client Component tramite la prop `children`:
+
+```jsx
+// ✅ Pattern: il server passa il server come children al client
+// src/app/page.js (server)
+import { ThemeProvider } from '@/components/ThemeProvider'; // 'use client'
+import { Article } from '@/components/Article';             // server
+
+export default function Page() {
+  return (
+    <ThemeProvider>
+      <Article />   {/* renderizzato dal server, passato come children pre-renderizzati */}
+    </ThemeProvider>
+  );
+}
+```
+
+`ThemeProvider` riceve `children` come RSC Payload già renderizzato — non importa mai `Article` direttamente, quindi `Article` rimane sul server.
+
+## Albero decisionale
+
+```
+Ho bisogno di onClick, onChange o qualsiasi handler di eventi?
+  → Client Component
+
+Ho bisogno di useState, useReducer o useContext?
+  → Client Component
+
+Ho bisogno di useEffect o useRef?
+  → Client Component
+
+Ho bisogno di API del browser (window, document, localStorage)?
+  → Client Component
+
+Altrimenti:
+  → Server Component (recupera dati, accede al DB, usa segreti)
+```
+
+In caso di dubbio, inizia con un Server Component. Aggiungi `'use client'` solo quando incontri uno dei blocchi sopra. Mantieni il confine il più in profondità possibile nell'albero per massimizzare la porzione renderizzata lato server, senza JS.
+
+---
+
+## Playground 1 — Fetch server → filtro client
+
+Il componente server recupera una lista di post da un endpoint JSON e la passa come prop a un componente client che gestisce l'input del filtro. La logica del filtro richiede `useState`, quindi deve essere un Client Component — ma il data fetching rimane sul server.
+
+<Playground
+  template="nextjs"
+  files={{
+    'app/page.js': `import { PostList } from './PostList';
+
+async function getPosts() {
+  const res = await fetch('https://jsonplaceholder.typicode.com/posts?_limit=10');
+  return res.json();
+}
+
+export default async function Page() {
+  const posts = await getPosts();
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '600px' }}>
+      <h1 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '1.5rem' }}>Posts</h1>
+      {/* Passa i dati recuperati dal server al componente client */}
+      <PostList posts={posts} />
+    </div>
+  );
+}`,
+    'app/PostList.js': `'use client';
+
+import { useState } from 'react';
+
+export function PostList({ posts }) {
+  const [query, setQuery] = useState('');
+  const filtered = posts.filter(p =>
+    p.title.toLowerCase().includes(query.toLowerCase())
+  );
+
+  return (
+    <div>
+      <input
+        value={query}
+        onChange={e => setQuery(e.target.value)}
+        placeholder="Filter posts…"
+        style={{
+          width: '100%', padding: '0.5rem 0.75rem',
+          border: '1px solid #e2e8f0', borderRadius: '6px',
+          fontSize: '0.875rem', fontFamily: 'sans-serif',
+          marginBottom: '1rem', boxSizing: 'border-box',
+        }}
+      />
+      {filtered.length === 0 && (
+        <p style={{ color: '#94a3b8', fontSize: '0.875rem' }}>No posts match.</p>
+      )}
+      <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        {filtered.map(post => (
+          <li key={post.id} style={{
+            padding: '0.625rem 0.875rem',
+            border: '1px solid #e2e8f0',
+            borderRadius: '6px',
+            fontSize: '0.875rem',
+          }}>
+            <span style={{ color: '#94a3b8', marginRight: '0.5rem', fontSize: '0.75rem' }}>#{post.id}</span>
+            {post.title}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}`,
+  }}
+  activeFile="app/page.js"
+  height={480}
+/>
+
+## Playground 2 — Il bug di useState in un Server Component
+
+Un errore comune quando si inizia con l'App Router: aggiungere `useState` a un componente senza `'use client'`. Prova a eseguire il codice così com'è, poi correggilo aggiungendo `'use client'` in cima a `Counter.js`.
+
+<Playground
+  template="nextjs"
+  files={{
+    'app/page.js': `import { Counter } from './Counter';
+
+export default function Page() {
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem' }}>
+      <h1 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '1rem' }}>
+        useState in a Server Component
+      </h1>
+      <Counter />
+    </div>
+  );
+}`,
+    'app/Counter.js': `// ❌ Manca 'use client' — useState non è disponibile sul server
+// Aggiungi 'use client' come prima riga per correggere questo.
+
+import { useState } from 'react';
+
+export function Counter() {
+  const [count, setCount] = useState(0);
+  return (
+    <button
+      onClick={() => setCount(c => c + 1)}
+      style={{
+        padding: '0.5rem 1.25rem',
+        background: 'rebeccapurple',
+        color: 'white',
+        border: 'none',
+        borderRadius: '6px',
+        cursor: 'pointer',
+        fontFamily: 'sans-serif',
+        fontWeight: 600,
+      }}
+    >
+      Count: {count}
+    </button>
+  );
+}`,
+  }}
+  activeFile="app/Counter.js"
+  height={400}
+/>
+
+## Playground 3 — Server component come children di un client
+
+`ThemeProvider` è un Client Component che gestisce un tema scuro/chiaro. `Article` è un Server Component (senza direttiva) che legge i dati. Il trucco: `Page` è anch'esso un server component e passa `<Article />` come children a `ThemeProvider` — `Article` non finisce mai nel bundle client.
+
+<Playground
+  template="nextjs"
+  files={{
+    'app/page.js': `import { ThemeProvider } from './ThemeProvider';
+import { Article } from './Article';
+
+// Page è un Server Component.
+// Passa un Article renderizzato lato server come children al ThemeProvider client.
+// Article NON viene trascinato nel bundle client.
+export default function Page() {
+  return (
+    <ThemeProvider>
+      <Article />
+    </ThemeProvider>
+  );
+}`,
+    'app/ThemeProvider.js': `'use client';
+
+import { useState } from 'react';
+
+export function ThemeProvider({ children }) {
+  const [dark, setDark] = useState(false);
+
+  return (
+    <div style={{
+      fontFamily: 'sans-serif',
+      minHeight: '100vh',
+      background: dark ? '#0b1326' : '#f8fafc',
+      color: dark ? '#dae2fd' : '#0b1326',
+      padding: '2rem',
+      transition: 'background 0.2s, color 0.2s',
+    }}>
+      <button
+        onClick={() => setDark(d => !d)}
+        style={{
+          marginBottom: '1.5rem',
+          padding: '0.375rem 0.875rem',
+          background: dark ? '#464554' : '#e2e8f0',
+          color: dark ? '#dae2fd' : '#0b1326',
+          border: 'none',
+          borderRadius: '6px',
+          cursor: 'pointer',
+          fontSize: '0.875rem',
+          fontFamily: 'sans-serif',
+          fontWeight: 600,
+        }}
+      >
+        {dark ? '☀ Light' : '☾ Dark'}
+      </button>
+
+      {/* children è l'Article RSC pre-renderizzato — rimane sul server */}
+      {children}
+    </div>
+  );
+}`,
+    'app/Article.js': `// Nessun 'use client' — questo è un Server Component.
+// Potrebbe essere async e recuperare dati da un DB qui.
+export function Article() {
+  return (
+    <article>
+      <h1 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '0.5rem' }}>
+        React Server Components
+      </h1>
+      <p style={{ lineHeight: 1.7, maxWidth: '480px' }}>
+        This article component runs on the server. It ships zero JavaScript to
+        the browser. ThemeProvider wraps it without importing it — it only
+        receives the pre-rendered output as <code>children</code>.
+      </p>
+    </article>
+  );
+}`,
+  }}
+  activeFile="app/page.js"
+  height={500}
+/>
+
+---
+
+## Punti chiave
+
+<Callout type="tip">
+**Server per impostazione predefinita — aggiungi `'use client'` solo quando ne hai bisogno.** Ogni componente inizia come Server Component. Aggiungi la direttiva solo quando incontri un blocco rigido: state, effect, API del browser o handler di eventi.
+
+**`'use client'` è un confine, non un interruttore per file.** Tutto ciò che viene importato al di sotto del confine diventa parte del bundle client — inclusi i pacchetti di terze parti. Mantieni il confine il più in profondità possibile nell'albero.
+
+**I Server Components non inviano JS.** Una pagina piena di Server Components viene renderizzata in HTML senza codice React per quei componenti nel bundle. Questo migliora direttamente il tempo di caricamento e il FCP.
+
+**Usa il pattern children per mantenere i server in un albero client.** Un Client Component non può importare un Server Component, ma può riceverne uno come `children` o come prop. Il Server Component viene pre-renderizzato sul server e il Client Component non lo importa mai.
+
+**Albero decisionale: handler di eventi / state / effect / API del browser → client. Tutto il resto → server.**
+</Callout>
+
+---
+
+**Riferimenti:** [Server Components](https://nextjs.org/docs/app/building-your-application/rendering/server-components) · [Client Components](https://nextjs.org/docs/app/building-your-application/rendering/client-components) · [Composition Patterns](https://nextjs.org/docs/app/building-your-application/rendering/composition-patterns) · [use client directive](https://react.dev/reference/rsc/use-client)

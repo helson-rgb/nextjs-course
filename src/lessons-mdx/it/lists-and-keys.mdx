@@ -1,0 +1,486 @@
+# Rendering Condizionale e Liste
+
+Renderizzare il contenuto giusto al momento giusto è il nucleo di qualsiasi UI dinamica. React ti fornisce tre strumenti per l'output condizionale e un pattern per gli array — tutti usando JavaScript semplice senza sintassi speciale.
+
+## Ternario: un ramo o l'altro
+
+L'operatore ternario renderizza uno di due valori in base a una condizione:
+
+```jsx
+{isLoggedIn ? <Dashboard /> : <LoginPrompt />}
+```
+
+Usa i ternari quando entrambi i rami producono output. Se il ramo falso non renderizza nulla, `&&` è più pulito.
+
+Puoi anche usare i ternari per alternare tra aspetti diversi dello stesso elemento:
+
+```jsx
+<button className={isActive ? 'btn-primary' : 'btn-ghost'}>
+  {isActive ? 'Attivo' : 'Inattivo'}
+</button>
+```
+
+Mantieni i ternari in JSX brevi. Quando la condizione o uno dei rami cresce oltre una riga, estrailo in una variabile prima del return:
+
+```jsx
+const contenuto = isLoggedIn ? <Dashboard /> : <LoginPrompt />;
+
+return <main>{contenuto}</main>;
+```
+
+## && short-circuit: renderizza o nulla
+
+Quando vuoi renderizzare qualcosa solo nel caso vero, usa lo short-circuit con `&&`:
+
+```jsx
+{haError && <BannerErrore messaggio={errore.messaggio} />}
+{isAdmin && <PannelloAdmin />}
+```
+
+React ignora `false`, `null` e `undefined` — non producono alcun output nel DOM. `&&` funziona perché JavaScript valuta `false && qualcosa` come `false`, che React salta.
+
+**La trappola dello 0.** L'operando sinistro deve essere un booleano, non un numero. Se è `0`, React renderizza la cifra "0":
+
+```jsx
+// ❌ Renderizza la stringa "0" quando l'array è vuoto
+{items.length && <Lista items={items} />}
+
+// ✅ Converti prima in booleano
+{items.length > 0 && <Lista items={items} />}
+
+// ✅ Oppure usa un ternario con null
+{items.length ? <Lista items={items} /> : null}
+```
+
+Lo stesso vale per qualsiasi numero falsy. Mantieni il lato sinistro come booleano stretto — `count > 0`, `Boolean(valore)`, o doppia negazione `!!valore`.
+
+## Return anticipato: non renderizzare nulla
+
+Un componente può restituire `null` per rinunciare al rendering. È utile per i guard — componenti che necessitano di una precondizione per produrre qualsiasi output:
+
+```jsx
+function BannerSuccesso({ messaggio }) {
+  if (!messaggio) return null; // nulla aggiunto al DOM
+
+  return (
+    <div className="banner banner--successo">
+      {messaggio}
+    </div>
+  );
+}
+```
+
+Restituire `null` non rimuove il componente dall'albero React — gli hook continuano a girare, le subscription continuano a scattare. Produce semplicemente nessun nodo DOM. Usalo quando il componente non ha legittimamente nulla da mostrare, non come modo per saltare effetti collaterali costosi.
+
+## Renderizzare liste con .map()
+
+Per renderizzare un array, chiama `.map()` e restituisci JSX per ogni elemento:
+
+```jsx
+const nomi = ['Alice', 'Bob', 'Carol'];
+
+return (
+  <ul>
+    {nomi.map(nome => (
+      <li key={nome}>{nome}</li>
+    ))}
+  </ul>
+);
+```
+
+Ogni elemento nel callback di `.map()` può essere complesso quanto necessario — un componente completo, più elementi in un Fragment:
+
+```jsx
+{prodotti.map(prodotto => (
+  <React.Fragment key={prodotto.id}>
+    <dt>{prodotto.nome}</dt>
+    <dd>{prodotto.prezzo}</dd>
+  </React.Fragment>
+))}
+```
+
+La chiamata `.map()` è semplicemente un'espressione JavaScript — vive dentro `{}` in JSX come qualsiasi altra espressione.
+
+## Perché ogni elemento di lista necessita di una key stabile
+
+React usa le key per tracciare quali elementi sono cambiati, sono stati aggiunti o rimossi tra i render. Senza di esse, React ricade sul confronto per posizione — e questo causa bug sottili difficili da debuggare.
+
+```jsx
+// ❌ Nessuna key — React fa corrispondenza per posizione
+{items.map(item => <Row label={item.label} />)}
+
+// ✅ Key stabile — React traccia ogni elemento per identità
+{items.map(item => <Row key={item.id} label={item.label} />)}
+```
+
+### Il bug dell'input che si sposta eliminando un elemento
+
+Ecco cosa va storto senza key stabili. Tre righe con input non controllati, con key per indice:
+
+```
+Indice 0 → Alice  [input: ""]
+Indice 1 → Bob    [input: "testo digitato"]   ← l'utente ha scritto qualcosa
+Indice 2 → Carol  [input: ""]
+```
+
+Elimini Bob. React riconcilia il nuovo array `[Alice, Carol]` con il vecchio `[Alice, Bob, Carol]` **per posizione**:
+
+- Posizione 0 → Alice: uguale, mantieni il nodo DOM.
+- Posizione 1 → Carol: **era Bob** — React riusa il nodo DOM di Bob per Carol. Anche il nodo DOM dell'input viene riusato, quindi "testo digitato" è ancora lì.
+- Posizione 2 → sparita.
+
+La riga di Carol mostra ora il contenuto digitato da Bob. Lo stato del DOM è trapelato.
+
+Con `key={item.id}`:
+
+- key `"alice"` → Alice: uguale, mantenuta.
+- key `"bob"` → sparita: **distrutta con il suo nodo DOM**, input pulito.
+- key `"carol"` → Carol: uguale, intatta.
+
+Il contenuto corretto rimane nella riga corretta.
+
+<Callout type="info">
+**Quando l'indice come key è sicuro:** Se la lista è puramente statica — mai riordinata, mai con elementi rimossi dal mezzo — e le righe non hanno stato interno (nessun input, nessun focus, nessuna animazione), usare l'indice dell'array come key è sicuro. Esempi: una lista di sola lettura di etichette, una tabella di riferimento statica, una lista paginata che si sostituisce completamente al cambio pagina. Il bug emerge solo quando React riusa un nodo DOM che contiene stato modificato dall'utente. Se nessuna delle tue righe ha stato interno, non c'è nulla che possa trapelare.
+</Callout>
+
+**Regole per le key:**
+
+- **Uniche** tra i fratelli nella stessa lista (non globalmente).
+- **Stabili** — lo stesso elemento di dati deve ricevere la stessa key ad ogni render.
+- **Non l'indice dell'array** quando gli elementi possono essere eliminati, aggiunti o riordinati.
+
+Buone fonti di key: ID di database, UUID, slug, hash di contenuto stabili. Se i tuoi dati non hanno ID, aggiungili prima che entrino nello stato — non generarli mai dentro `.map()` con `Math.random()` o `Date.now()`, poiché una nuova key ad ogni render è equivalente a non avere key.
+
+---
+
+## Playground 1 — Stato di autenticazione
+
+`isLoggedIn` alterna tra due componenti completamente diversi. Nota il ternario in `App.js` — un booleano controlla l'intero cambio di vista. Prova ad estenderlo: aggiungi uno stato `isLoading` e renderizza un terzo pannello "Caricamento…" usando un ternario annidato o un return anticipato.
+
+<Playground
+  files={{
+    '/App.js': `import { useState } from 'react';
+import { Dashboard } from './Dashboard';
+import { LoginPrompt } from './LoginPrompt';
+
+export default function App() {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '480px' }}>
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '1.25rem',
+      }}>
+        <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
+          {isLoggedIn ? 'Connesso come Alice' : 'Non connesso'}
+        </span>
+        <button
+          onClick={() => setIsLoggedIn(v => !v)}
+          style={{
+            padding: '0.375rem 0.875rem',
+            background: isLoggedIn ? '#fee2e2' : '#f0fdf4',
+            color: isLoggedIn ? '#dc2626' : '#16a34a',
+            border: 'none',
+            borderRadius: '6px',
+            fontWeight: 600,
+            cursor: 'pointer',
+            fontSize: '0.8rem',
+            fontFamily: 'sans-serif',
+          }}
+        >
+          {isLoggedIn ? 'Esci' : 'Accedi'}
+        </button>
+      </div>
+
+      {isLoggedIn ? (
+        <Dashboard name="Alice" />
+      ) : (
+        <LoginPrompt onLogin={() => setIsLoggedIn(true)} />
+      )}
+    </div>
+  );
+}`,
+    '/Dashboard.js': `export function Dashboard({ name }) {
+  const stats = [
+    { label: 'Lezioni',   value: '4'   },
+    { label: 'Serie',     value: '7d'  },
+    { label: 'Progresso', value: '32%' },
+  ];
+
+  return (
+    <div style={{
+      padding: '1.5rem',
+      background: 'white',
+      border: '1px solid #e2e8f0',
+      borderRadius: '8px',
+      fontFamily: 'sans-serif',
+    }}>
+      <p style={{ margin: '0 0 0.25rem', fontSize: '1.125rem', fontWeight: 700 }}>
+        Bentornato, {name}!
+      </p>
+      <p style={{ margin: '0 0 1.25rem', color: '#64748b', fontSize: '0.875rem' }}>
+        Ecco cosa sta succedendo oggi.
+      </p>
+      <div style={{ display: 'flex', gap: '0.75rem' }}>
+        {stats.map(stat => (
+          <div key={stat.label} style={{
+            flex: 1, padding: '0.75rem', background: '#f8fafc',
+            borderRadius: '6px', textAlign: 'center',
+          }}>
+            <p style={{ margin: '0 0 0.25rem', fontSize: '1.25rem', fontWeight: 700, color: 'rebeccapurple' }}>
+              {stat.value}
+            </p>
+            <p style={{ margin: 0, fontSize: '0.7rem', color: '#64748b' }}>{stat.label}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}`,
+    '/LoginPrompt.js': `export function LoginPrompt({ onLogin }) {
+  return (
+    <div style={{
+      padding: '2rem 1.5rem',
+      background: 'white',
+      border: '1px solid #e2e8f0',
+      borderRadius: '8px',
+      fontFamily: 'sans-serif',
+      textAlign: 'center',
+    }}>
+      <p style={{ margin: '0 0 0.25rem', fontSize: '1.125rem', fontWeight: 700 }}>
+        Accedi per continuare
+      </p>
+      <p style={{ margin: '0 0 1.5rem', color: '#64748b', fontSize: '0.875rem' }}>
+        Accedi alle tue lezioni e tieni traccia dei tuoi progressi.
+      </p>
+      <button
+        onClick={onLogin}
+        style={{
+          padding: '0.5rem 1.5rem',
+          background: 'rebeccapurple',
+          color: 'white',
+          border: 'none',
+          borderRadius: '6px',
+          fontWeight: 600,
+          cursor: 'pointer',
+          fontSize: '0.875rem',
+          fontFamily: 'sans-serif',
+        }}
+      >
+        Accedi
+      </button>
+    </div>
+  );
+}`,
+  }}
+  activeFile="/App.js"
+/>
+
+## Playground 2 — Bug delle key a confronto
+
+Entrambi i pannelli renderizzano la stessa lista e lo stesso componente `Row` (con un input non controllato). L'unica differenza è la key: indice a sinistra, ID stabile a destra.
+
+**Esperimento:** digita qualcosa nell'input di Bob in *entrambi* i pannelli, poi clicca × accanto a Bob. Nel pannello sinistro la riga di Carol mostra ora il testo di Bob — lo stato del DOM è trapelato. Nel pannello destro la riga di Carol è intatta.
+
+<Playground
+  files={{
+    '/App.js': `import { useState } from 'react';
+
+const INIZIALE = [
+  { id: 'alice', label: 'Alice' },
+  { id: 'bob',   label: 'Bob'   },
+  { id: 'carol', label: 'Carol' },
+];
+
+function Row({ label, onDelete }) {
+  return (
+    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem' }}>
+      <input
+        defaultValue={label}
+        style={{
+          padding: '0.375rem 0.5rem',
+          border: '1px solid #cbd5e1',
+          borderRadius: '4px',
+          fontSize: '0.8rem',
+          width: '90px',
+          fontFamily: 'sans-serif',
+        }}
+      />
+      <button
+        onClick={onDelete}
+        style={{
+          background: 'none', border: 'none',
+          color: '#94a3b8', cursor: 'pointer',
+          fontSize: '1.125rem', lineHeight: 1, padding: '0 0.2rem',
+        }}
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
+export default function App() {
+  const [items, setItems] = useState(INIZIALE);
+
+  function rimuovi(id) {
+    setItems(prev => prev.filter(item => item.id !== id));
+  }
+
+  const pannello = (cattivo) => ({
+    flex: 1,
+    padding: '1rem',
+    background: '#f8fafc',
+    borderRadius: '6px',
+    border: '1px solid ' + (cattivo ? '#fecaca' : '#bbf7d0'),
+  });
+
+  const titolo = (cattivo) => ({
+    margin: '0 0 0.75rem',
+    fontSize: '0.8rem',
+    fontWeight: 700,
+    color: cattivo ? '#dc2626' : '#16a34a',
+    fontFamily: 'sans-serif',
+  });
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '1.5rem' }}>
+      <p style={{ margin: '0 0 1rem', fontSize: '0.8rem', color: '#64748b' }}>
+        Scrivi nell'input di Bob, poi elimina Bob. Osserva cosa succede in ciascun pannello.
+      </p>
+      <div style={{ display: 'flex', gap: '1rem' }}>
+        <div style={pannello(true)}>
+          <p style={titolo(true)}>key=indice ❌</p>
+          {items.map((item, i) => (
+            <Row key={i} label={item.label} onDelete={() => rimuovi(item.id)} />
+          ))}
+        </div>
+        <div style={pannello(false)}>
+          <p style={titolo(false)}>key=id ✅</p>
+          {items.map(item => (
+            <Row key={item.id} label={item.label} onDelete={() => rimuovi(item.id)} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}`,
+  }}
+  activeFile="/App.js"
+/>
+
+## Playground 3 — Filtro / ricerca
+
+`results` viene derivato da `UTENTI` e `query` ad ogni render — non serve stato separato per la lista filtrata. Poiché `results` è sempre sincronizzato con entrambi, il `&&` / ternario per lo stato vuoto funziona automaticamente. Prova ad aggiungere un filtro per ruolo (un secondo input o un insieme di bottoni toggle) accanto alla ricerca per nome.
+
+<Playground
+  files={{
+    '/App.js': `import { useState } from 'react';
+
+const UTENTI = [
+  { id: 1, name: 'Alice Johnson', role: 'Admin'  },
+  { id: 2, name: 'Bob Smith',     role: 'Member' },
+  { id: 3, name: 'Carol Davis',   role: 'Guest'  },
+  { id: 4, name: 'David Lee',     role: 'Member' },
+  { id: 5, name: 'Eve Martinez',  role: 'Admin'  },
+];
+
+const BADGE = {
+  Admin:  { bg: '#dcfce7', text: '#16a34a' },
+  Member: { bg: '#dbeafe', text: '#2563eb' },
+  Guest:  { bg: '#fef9c3', text: '#ca8a04' },
+};
+
+export default function App() {
+  const [query, setQuery] = useState('');
+
+  const risultati = UTENTI.filter(u =>
+    u.name.toLowerCase().includes(query.toLowerCase())
+  );
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '400px' }}>
+      <input
+        value={query}
+        onChange={e => setQuery(e.target.value)}
+        placeholder="Cerca utenti…"
+        style={{
+          width: '100%',
+          padding: '0.5rem 0.75rem',
+          border: '1px solid #e2e8f0',
+          borderRadius: '6px',
+          fontSize: '0.875rem',
+          fontFamily: 'sans-serif',
+          outline: 'none',
+          boxSizing: 'border-box',
+          marginBottom: '1rem',
+        }}
+      />
+
+      {risultati.length === 0 ? (
+        <p style={{ color: '#94a3b8', fontSize: '0.875rem', textAlign: 'center', margin: '2rem 0' }}>
+          Nessun utente corrisponde a "{query}"
+        </p>
+      ) : (
+        <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          {risultati.map(u => {
+            const { bg, text } = BADGE[u.role];
+            return (
+              <li
+                key={u.id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '0.625rem 0.875rem',
+                  background: 'white',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '6px',
+                }}
+              >
+                <span style={{ fontWeight: 500, fontSize: '0.875rem' }}>{u.name}</span>
+                <span style={{
+                  background: bg, color: text,
+                  padding: '0.2rem 0.6rem',
+                  borderRadius: '999px',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                }}>
+                  {u.role}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      <p style={{ color: '#94a3b8', fontSize: '0.75rem', marginTop: '0.75rem', textAlign: 'right' }}>
+        {risultati.length} di {UTENTI.length} utenti
+      </p>
+    </div>
+  );
+}`,
+  }}
+  activeFile="/App.js"
+/>
+
+---
+
+## Punti chiave
+
+<Callout type="tip">
+**Tre strumenti per l'output condizionale.** Ternario (`condizione ? a : b`) quando entrambi i rami renderizzano qualcosa. `&&` quando solo il ramo vero renderizza qualcosa — ma mantieni il lato sinistro come booleano per evitare la trappola dello "0 che si renderizza come testo". Return anticipato `null` quando un componente non ha nulla da mostrare.
+
+**`.map()` è l'unico primitivo per le liste.** Restituisci JSX dal callback; l'array risultante entra in `{}` come qualsiasi altra espressione. Estrai il callback in una funzione con nome quando cresce oltre due o tre righe.
+
+**Le key sono identità, non ordine.** React usa le key per abbinare gli elementi tra i render. Senza key stabili, React riconcilia per posizione — riusando nodi DOM per gli elementi sbagliati e facendo trapelare stato (come valori digitati negli input) nelle righe sbagliate.
+
+**Usa ID di database, slug o UUID come key.** Mai `Math.random()` o `Date.now()` dentro `.map()` — una nuova key ad ogni render distrugge e ricrea il nodo DOM ad ogni render. L'indice dell'array è sicuro solo quando la lista è statica e le righe non hanno stato interno.
+</Callout>
+
+---
+
+**Riferimenti:** [Rendering Condizionale](https://react.dev/learn/conditional-rendering) · [Renderizzare Liste](https://react.dev/learn/rendering-lists)

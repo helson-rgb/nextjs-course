@@ -1,0 +1,371 @@
+# Server Actions
+
+Server Actions permitem executar código no servidor diretamente de um formulário ou de um manipulador de eventos — sem necessidade de rota de API. Você define uma função assíncrona, a marca com `'use server'`, e a passa para um `<form action>`. O Next.js serializa a chamada, executa no servidor e retorna o resultado. O navegador nunca vê o código-fonte da função.
+
+<Callout type="tip">
+**Voltando à Lição 5.** Em [Formulários e Inputs Controlados](/lessons/forms-and-controlled-inputs) você gerenciou o estado do formulário com `useState` e `onSubmit`. Server Actions substituem esse padrão para mutações que tocam o servidor: sem `fetch`, sem rota de API, sem estado para carregamento ou erros — apenas uma função assíncrona.
+</Callout>
+
+## O que é uma Server Action
+
+Uma Server Action é uma função assíncrona anotada com a diretiva `'use server'`. A diretiva pode aparecer no topo de um arquivo (marcando todas as exportações desse arquivo como server actions) ou como a primeira linha dentro do corpo de uma função assíncrona (marcando apenas aquela função).
+
+```js
+// Opção A — diretiva no nível do arquivo (recomendada para actions compartilhadas)
+'use server';
+
+export async function createNote(prevState, formData) {
+  const body = formData.get('body');
+  // ... grava no BD, arquivo ou store em memória
+}
+```
+
+```js
+// Opção B — inline dentro de um Server Component
+export default async function Page() {
+  async function handleSubmit(formData) {
+    'use server';
+    const body = formData.get('body');
+    // ...
+  }
+  return <form action={handleSubmit}>...</form>;
+}
+```
+
+A Opção A mantém as actions em um arquivo dedicado `actions.js`, tornando-as importáveis tanto de Server Components quanto de Client Components. A Opção B é conveniente para actions pontuais que pertencem apenas a uma página.
+
+## Chamando uma action a partir de um formulário
+
+Passe a função de action diretamente para o atributo HTML `action` — sem `onSubmit`, sem `event.preventDefault()`:
+
+```jsx
+// src/app/playground/notes/page.js
+import { createNote } from './actions';
+
+export default function Page() {
+  return (
+    <form action={createNote}>
+      <input name="body" type="text" />
+      <button type="submit">Add</button>
+    </form>
+  );
+}
+```
+
+Quando o formulário é enviado, o Next.js chama `createNote` no servidor com um argumento `FormData`. Leia os campos com `formData.get('body')`.
+
+### Passando argumentos extras com `.bind()`
+
+Para passar um valor que não é um campo do formulário (como um ID de registro), use `.bind()`:
+
+```jsx
+// Vincula note.id como primeiro argumento; formData chega como segundo
+<form action={deleteNote.bind(null, note.id)}>
+  <button type="submit">Delete</button>
+</form>
+```
+
+```js
+// actions.js
+export async function deleteNote(id, _formData) {
+  removeNote(id);
+  revalidatePath('/playground/notes');
+}
+```
+
+## Aprimoramento progressivo
+
+Como a action está ligada ao atributo nativo `action`, o formulário funciona mesmo que o JavaScript ainda não tenha carregado. O navegador faz um POST padrão; o Next.js processa a action no servidor e redireciona de volta. Quando o JS carrega, o envio é interceptado e tratado no cliente sem recarregar a página inteira.
+
+Isso é aprimoramento progressivo de graça — você escreve uma função e obtém as duas experiências.
+
+## `useFormStatus` — estado pendente no botão de envio
+
+`useFormStatus` (de `react-dom`) dá a qualquer componente dentro de um formulário acesso ao estado de envio do formulário. O uso mais comum é desabilitar o botão de envio e alterar seu rótulo enquanto a action está em execução.
+
+```jsx
+'use client';
+import { useFormStatus } from 'react-dom';
+
+function SubmitButton() {
+  const { pending } = useFormStatus();
+  return (
+    <button type="submit" disabled={pending}>
+      {pending ? 'Saving…' : 'Save'}
+    </button>
+  );
+}
+```
+
+`SubmitButton` deve ser um **filho** do `<form>` — `useFormStatus` lê o contexto do formulário pai mais próximo. Você não pode chamá-lo no mesmo componente que renderiza o `<form>`.
+
+```jsx
+export function MyForm() {
+  return (
+    <form action={myAction}>
+      <input name="value" />
+      <SubmitButton />  {/* ← funciona: filho do form */}
+    </form>
+  );
+}
+```
+
+## `useActionState` — estado e feedback
+
+`useActionState` (de `react`, React 19) envolve uma action para que ela possa retornar estado ao componente — útil para erros de validação, mensagens de sucesso ou dados atualizados.
+
+```jsx
+import { useActionState } from 'react';
+import { createNote } from './actions';
+
+export function NewNoteForm() {
+  const [error, formAction] = useActionState(createNote, null);
+
+  return (
+    <form action={formAction}>
+      <input name="body" />
+      <button type="submit">Add</button>
+      {error && <p>{error}</p>}
+    </form>
+  );
+}
+```
+
+A assinatura da action muda: o **primeiro** argumento passa a ser `prevState` (o valor de retorno anterior), e `formData` vai para o **segundo**:
+
+```js
+'use server';
+
+export async function createNote(prevState, formData) {
+  const body = formData.get('body')?.toString().trim();
+  if (!body) return 'Note cannot be empty.';  // retornado → vira `error` no componente
+  await saveNote(body);
+  revalidatePath('/playground/notes');
+  return null;  // limpa o erro
+}
+```
+
+`useActionState` também expõe um terceiro valor, `isPending`, que espelha `useFormStatus` — use o que melhor se encaixar na estrutura do seu componente.
+
+### `useActionState` vs `useFormStatus`
+
+| | `useActionState` | `useFormStatus` |
+|---|---|---|
+| Import | `react` | `react-dom` |
+| Retorna | `[state, formAction, isPending]` | `{ pending, data, method }` |
+| Onde usar | Componente que possui o formulário | Componente filho *dentro* do formulário |
+| Finalidade | Estado retornado pela action | Estado de envio do formulário |
+
+## Revalidando o cache
+
+Após uma mutação, a página em cache está desatualizada. Chame `revalidatePath` ou `revalidateTag` de `next/cache` dentro da action para limpá-lo:
+
+```js
+import { revalidatePath, revalidateTag } from 'next/cache';
+
+export async function createNote(prevState, formData) {
+  await saveNote(formData.get('body'));
+  revalidatePath('/playground/notes');   // refaz o fetch desse caminho exato
+  // revalidateTag('notes');             // ou limpa todas as respostas com a tag 'notes'
+  return null;
+}
+```
+
+### `revalidatePath` vs `revalidateTag`
+
+| | `revalidatePath` | `revalidateTag` |
+|---|---|---|
+| Alvo | Um caminho de URL específico | Todas as respostas em cache com uma tag |
+| Quando usar | A mutação afeta uma página conhecida | A mutação afeta muitas páginas (ex.: fonte de dados compartilhada) |
+| Exemplo | `revalidatePath('/notes')` | `revalidateTag('notes-list')` |
+
+## `redirect()` após uma mutação
+
+Após criar um recurso, você pode querer enviar o usuário para a página do novo registro. Use `redirect()` de `next/navigation` dentro da action:
+
+```js
+import { redirect } from 'next/navigation';
+
+export async function createPost(prevState, formData) {
+  const post = await savePost(formData.get('title'));
+  redirect(`/posts/${post.id}`);  // lança internamente — não envolva em try/catch
+}
+```
+
+`redirect()` funciona lançando um erro especial que o Next.js captura. **Nunca o chame dentro de um bloco `try`** — coloque-o após o `try/catch` para que não seja engolido.
+
+```js
+// ✅ correto
+export async function createPost(prevState, formData) {
+  try {
+    await savePost(formData.get('title'));
+  } catch (err) {
+    return 'Failed to save.';
+  }
+  redirect('/posts');  // fora do try — não é engolido
+}
+```
+
+---
+
+## O app do playground — Notas
+
+A rota `/playground/notes` demonstra todos os quatro padrões juntos:
+
+**Action `createNote`** (`src/app/playground/notes/actions.js`) — lê o corpo do formulário, valida, chama `addNote()` do store em memória e então chama `revalidatePath('/playground/notes')` para que a página renderize novamente com a nova nota.
+
+**Action `deleteNote`** — recebe um `id` de nota vinculado como primeiro argumento. Chama `removeNote(id)` e depois `revalidatePath`.
+
+**Componente `NewNoteForm`** (`src/components/NewNoteForm.jsx`) — um Client Component que conecta `useActionState(createNote, null)` para feedback de erros e renderiza um filho `<SubmitButton>` que lê `useFormStatus().pending`.
+
+```jsx
+// src/app/playground/notes/page.js (trecho)
+export default async function NotesPage() {
+  const notes = getNotes();
+  return (
+    <div>
+      <NewNoteForm />
+      <ul>
+        {notes.map((note) => (
+          <li key={note.id}>
+            <p>{note.body}</p>
+            <form action={deleteNote.bind(null, note.id)}>
+              <button type="submit">Delete</button>
+            </form>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+```
+
+Navegue até `/playground/notes`, adicione uma nota, delete uma. Observe a página atualizar sem recarregamento completo — e note o rótulo "Adding…" enquanto a action está em andamento.
+
+---
+
+## Playground — contador com Server Action
+
+O contador abaixo simula uma Server Action com um atraso artificial de 600 ms. `useActionState` mantém a contagem; `useFormStatus` controla o estado pendente no botão. A única diferença em relação a uma Server Action real do Next.js é a ausência de `'use server'` — todo o resto é idêntico.
+
+<Playground
+  template="react"
+  files={{
+    'App.js': `import { useActionState } from 'react';
+import { useFormStatus } from 'react-dom';
+
+// In a real Next.js app this would live in actions.js with 'use server'
+async function incrementAction(prevState, _formData) {
+  await new Promise(r => setTimeout(r, 600)); // simulate server round-trip
+  return { count: prevState.count + 1, savedAt: new Date().toLocaleTimeString() };
+}
+
+async function resetAction(_prevState, _formData) {
+  await new Promise(r => setTimeout(r, 400));
+  return { count: 0, savedAt: new Date().toLocaleTimeString() };
+}
+
+function SubmitButton({ label }) {
+  const { pending } = useFormStatus();
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      style={{
+        padding: '0.5rem 1.25rem',
+        borderRadius: '6px',
+        border: 'none',
+        background: pending ? '#c7d2fe' : '#4f46e5',
+        color: '#fff',
+        fontWeight: 600,
+        cursor: pending ? 'not-allowed' : 'pointer',
+        fontSize: '0.875rem',
+      }}
+    >
+      {pending ? 'Saving…' : label}
+    </button>
+  );
+}
+
+export default function Counter() {
+  const [state, incrementForm] = useActionState(incrementAction, { count: 0, savedAt: null });
+  const [, resetForm] = useActionState(resetAction, { count: 0, savedAt: null });
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '360px' }}>
+      <h2 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '1.5rem' }}>
+        Server Action Counter
+      </h2>
+
+      <div style={{
+        padding: '1.5rem',
+        border: '1px solid #e2e8f0',
+        borderRadius: '8px',
+        textAlign: 'center',
+        marginBottom: '1rem',
+      }}>
+        <p style={{ fontSize: '3rem', fontWeight: 800, margin: 0, color: '#4f46e5' }}>
+          {state.count}
+        </p>
+        {state.savedAt && (
+          <p style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '0.25rem' }}>
+            last saved {state.savedAt}
+          </p>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', gap: '0.75rem' }}>
+        <form action={incrementForm} style={{ flex: 1 }}>
+          <SubmitButton label="+1" />
+        </form>
+        <form action={resetForm}>
+          <button
+            type="submit"
+            style={{
+              padding: '0.5rem 1rem',
+              borderRadius: '6px',
+              border: '1px solid #e2e8f0',
+              background: '#fff',
+              color: '#64748b',
+              cursor: 'pointer',
+              fontSize: '0.875rem',
+            }}
+          >
+            Reset
+          </button>
+        </form>
+      </div>
+
+      <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '1rem' }}>
+        Each click waits 600 ms (simulated server round-trip).
+        The button disables via useFormStatus while pending.
+      </p>
+    </div>
+  );
+}`,
+  }}
+  activeFile="App.js"
+  height={440}
+/>
+
+---
+
+## Principais conclusões
+
+<Callout type="tip">
+**Server Actions substituem rotas de API para mutações.** Defina uma função `async` com `'use server'`, passe-a para `<form action>` e o Next.js cuida do POST. Sem `fetch`, sem `res.json()`, sem arquivo de rota.
+
+**`useFormStatus` é para o botão de envio.** Chame-o em um componente filho dentro do formulário para ler `pending`. O componente que renderiza o formulário não pode chamá-lo diretamente.
+
+**`useActionState` retorna dados da action.** Use-o quando a action precisa enviar erros de validação ou estado atualizado de volta ao componente. A assinatura da action passa a ser `(prevState, formData)`.
+
+**Vincule argumentos extras com `.bind(null, value)`.** Os valores vinculados chegam antes de `formData`. É assim que você passa um ID de registro para uma action de exclusão sem um input oculto.
+
+**Sempre chame `revalidatePath` (ou `revalidateTag`) após uma mutação.** Sem isso o cache da página fica desatualizado e a interface não refletirá a alteração na próxima visita.
+
+**`redirect()` deve ficar fora do `try/catch`.** Ele lança internamente. Capturá-lo engole silenciosamente o redirecionamento.
+</Callout>
+
+---
+
+**Referências:** [Server Actions and Mutations](https://nextjs.org/docs/app/building-your-application/data-fetching/server-actions-and-mutations) · [useFormStatus](https://react.dev/reference/react-dom/hooks/useFormStatus) · [useActionState](https://react.dev/reference/react/useActionState) · [revalidatePath](https://nextjs.org/docs/app/api-reference/functions/revalidatePath)

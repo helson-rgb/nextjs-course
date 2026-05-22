@@ -1,0 +1,476 @@
+# useEffect e Ciclo di Vita
+
+I componenti fanno molto più che renderizzare HTML — si iscrivono ai dati, avviano timer, si sincronizzano con API esterne e aggiornano il titolo della scheda del browser. `useEffect` è l'hook che collega il ciclo di render di React al mondo esterno.
+
+## Il pipeline render → commit → effect
+
+React elabora l'aggiornamento di un componente in tre fasi distinte:
+
+```
+1. Render   — la tua funzione componente viene eseguita; React costruisce un nuovo albero di elementi
+2. Commit   — React applica il diff minimo al DOM reale
+3. Effect   — i callback di useEffect scattano dopo che il browser ha dipinto
+```
+
+Il dettaglio chiave: gli effect scattano **dopo** che l'utente ha visto l'aggiornamento. Possono leggere il DOM completato in sicurezza, avviare una subscription o lanciare una richiesta di rete senza bloccare il browser nel dipingere. Se hai bisogno di eseguire qualcosa *prima* del dipingere (per misurare un nodo DOM, ad esempio), è lì che entra `useLayoutEffect` — ma `useEffect` copre quasi tutto il resto.
+
+## Dichiarare gli effect con useEffect
+
+```jsx
+import { useEffect } from 'react';
+
+useEffect(() => {
+  // effetto collaterale qui
+  return () => {
+    // pulizia opzionale
+  };
+}, [/* array di dipendenze */]);
+```
+
+Il secondo argomento — l'array di dipendenze — controlla quando l'effect viene eseguito:
+
+| Array di dipendenze | Quando l'effect viene eseguito |
+|---|---|
+| *(omesso)* | Dopo ogni render |
+| `[]` | Una volta, dopo il primo render (mount) |
+| `[a, b]` | Dopo il mount, e ogni volta che `a` o `b` cambia |
+
+Omettere l'array del tutto è raramente corretto — fa girare l'effect dopo ogni tasto premuto, aggiornamento di stato o re-render del genitore.
+
+## L'array di dipendenze nel dettaglio
+
+React confronta le dipendenze usando `Object.is` (uguaglianza stretta). Per i valori primitivi — numeri, stringhe, booleani — confronta per valore. Per oggetti e funzioni confronta per **riferimento**:
+
+```jsx
+// ❌ Oggetto letterale — nuovo riferimento ad ogni render, sempre "cambiato"
+useEffect(() => {
+  iscriviti(opzioni);
+}, [{ threshold: 0.5 }]);
+
+// ✅ Riferimento stabile — definito fuori dal componente o con useMemo
+const OPZIONI = { threshold: 0.5 };
+useEffect(() => {
+  iscriviti(OPZIONI);
+}, [OPZIONI]);
+```
+
+Il plugin ESLint di React (`eslint-plugin-react-hooks`) impone deps esaustive — avvertirà se usi un valore dentro un effect ma lo ometti dall'array. Fidati di quegli avvertimenti; le deps mancanti causano bug di stale closure.
+
+## Funzioni di pulizia
+
+Restituisci una funzione da un effect per eseguire il codice di pulizia:
+
+```jsx
+useEffect(() => {
+  const sub = iscriviti(userId);       // avvia
+  return () => sub.disiscrivi();      // ferma
+}, [userId]);
+```
+
+React chiama la funzione di pulizia:
+1. **Prima di eseguire di nuovo l'effect** quando le dipendenze cambiano.
+2. **Quando il componente si smonta** dall'albero.
+
+Il ciclo di vita per un `userId` che cambia appare così:
+
+```
+Mount:           iscriviti("alice")
+userId → "bob":  disiscrivi("alice") → iscriviti("bob")
+Unmount:         disiscrivi("bob")
+```
+
+<Callout type="info">
+In **Strict Mode** (solo in sviluppo), React monta intenzionalmente ogni componente due volte — mount → unmount → mount — per rilevare la pulizia mancante. Se il tuo effect viene eseguito due volte e causa un bug visibile (subscription duplicate, doppia chiamata API), hai un problema di pulizia, non un problema di Strict Mode. La funzione di pulizia è la soluzione.
+</Callout>
+
+## Insidie comuni
+
+### Loop infiniti
+
+Un effect che scrive in una variabile di stato che elenca anche come dipendenza crea un loop:
+
+```jsx
+// ❌ Loop: setCount scatta re-render → effect torna a girare → setCount → ...
+useEffect(() => {
+  setCount(count + 1);
+}, [count]);
+```
+
+La soluzione qui è l'updater funzionale — che rimuove completamente la dipendenza da `count`:
+
+```jsx
+// ✅ Nessun count nelle deps — l'updater funzionale legge il valore più recente internamente
+useEffect(() => {
+  setCount(prev => prev + 1);
+}, []); // ora gira solo una volta
+```
+
+Più in generale: se un effect legge un valore solo per calcolare il valore successivo di quello stesso stato, la forma dell'updater funzionale rimuove la dep e il loop.
+
+### Stale closure
+
+Quando ometti una dipendenza, l'effect cattura uno snapshot di quel valore dal render in cui è girato per la prima volta e non vede mai gli aggiornamenti:
+
+```jsx
+// ❌ Stale: count catturato come 0 al mount, l'intervallo imposta sempre 0+1=1
+useEffect(() => {
+  const id = setInterval(() => {
+    setCount(count + 1); // "count" è sempre il valore iniziale
+  }, 1000);
+  return () => clearInterval(id);
+}, []); // count mancante dalle deps
+```
+
+Risolvi con un updater funzionale — il callback riceve il valore più recente senza doverlo catturare:
+
+```jsx
+// ✅ Updater funzionale — nessuna stale closure, nessuna dep extra
+useEffect(() => {
+  const id = setInterval(() => {
+    setCount(prev => prev + 1); // sempre aggiornato
+  }, 1000);
+  return () => clearInterval(id);
+}, []);
+```
+
+### Fetching negli effect — e i suoi problemi
+
+Un semplice `fetch` dentro `useEffect` è l'approccio da principiante per caricare dati. Funziona, ma ha tre problemi seri:
+
+1. **Race condition.** Se `userId` cambia prima che il primo fetch si risolva, entrambe le risposte arrivano in ordine imprevedibile — quella più vecchia potrebbe sovrascrivere quella più recente.
+2. **Doppia invocazione in Strict Mode.** In sviluppo React fa girare l'effect due volte, inviando due richieste di rete.
+3. **Nessuna cache.** Ogni mount richiede di nuovo i dati anche se erano appena stati caricati.
+
+La mitigazione standard è un flag di cancellazione nella pulizia:
+
+```jsx
+useEffect(() => {
+  let ignora = false;
+
+  fetch('/api/utente/' + userId)
+    .then(r => r.json())
+    .then(dati => {
+      if (!ignora) setUtente(dati); // salta se un fetch più recente è già girato
+    });
+
+  return () => { ignora = true; };
+}, [userId]);
+```
+
+Questo impedisce che le risposte stale aggiornino lo stato, ma non risolve il caching o il problema del loading-state nella navigazione. La risposta corretta a lungo termine per il fetching dei dati in Next.js sono i **Server Components** — trattati nel prossimo capitolo.
+
+## Potresti non aver bisogno di un effect
+
+Gli effect servono per sincronizzare React con sistemi *fuori* da React: DOM API, eventi browser, subscription esterne, rete. Se stai calcolando qualcosa puramente dallo stato e dalle props di React, un effect è lo strumento sbagliato.
+
+**Valori derivati — calcola durante il render, non in un effect:**
+
+```jsx
+// ❌ Due render, stato inutile
+const [items, setItems] = useState([...]);
+const [filtrati, setFiltrati] = useState([]);
+useEffect(() => {
+  setFiltrati(items.filter(i => i.attivo));
+}, [items]);
+
+// ✅ Un render, nessun effect, sempre sincronizzato
+const filtrati = items.filter(i => i.attivo);
+```
+
+**Eventi utente — rispondi nell'handler, non in un effect che guarda un segnale:**
+
+```jsx
+// ❌ Effect che guarda il flag inviato
+useEffect(() => {
+  if (inviato) inviaAnalytics('form_submit');
+}, [inviato]);
+
+// ✅ Direttamente nell'handler — stesso timing, nessuno stato extra
+function handleSubmit() {
+  setInviato(true);
+  inviaAnalytics('form_submit');
+}
+```
+
+Gli effect che reagiscono solo ai cambiamenti di stato React — dove rimuovere l'effect e chiamare l'effetto collaterale dall'event handler funzionerebbe — dovrebbero essere spostati negli event handler. Riserva gli effect per ciò che solo gli effect possono fare.
+
+---
+
+## Playground 1 — Sincronizzare document.title
+
+L'effect legge `titoloScheda` (un valore derivato calcolato durante il render) e lo scrive in `document.title`. Poiché `titoloScheda` è una stringa, React la confronta per valore — l'effect scatta solo quando il titolo cambia davvero. Il falso chrome del browser sotto l'input mostra cosa visualizzerebbe la scheda del browser.
+
+<Playground
+  files={{
+    '/App.js': `import { useState, useEffect } from 'react';
+
+export default function App() {
+  const [count, setCount] = useState(0);
+  const [nome, setNome] = useState('React');
+
+  // Derivato — calcolato durante il render, non memorizzato nello stato
+  const titoloScheda = count > 0 ? '(' + count + ') ' + nome + ' Note' : nome + ' Note';
+
+  useEffect(() => {
+    document.title = titoloScheda;
+  }, [titoloScheda]); // gira di nuovo solo quando titoloScheda cambia
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '380px' }}>
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.5rem',
+        padding: '0.5rem 0.875rem',
+        background: '#1e293b',
+        borderRadius: '8px 8px 0 0',
+        marginBottom: '1.5rem',
+        fontSize: '0.8rem',
+        color: 'white',
+        fontFamily: 'monospace',
+        overflow: 'hidden',
+      }}>
+        <span>📄</span>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {titoloScheda}
+        </span>
+      </div>
+
+      <label style={{ display: 'block', marginBottom: '1rem' }}>
+        <span style={{ display: 'block', fontSize: '0.8rem', color: '#64748b', marginBottom: '0.375rem' }}>
+          Il tuo nome
+        </span>
+        <input
+          value={nome}
+          onChange={e => setNome(e.target.value)}
+          style={{
+            padding: '0.5rem 0.75rem',
+            border: '1px solid #e2e8f0',
+            borderRadius: '6px',
+            fontSize: '0.875rem',
+            fontFamily: 'sans-serif',
+            width: '100%',
+            boxSizing: 'border-box',
+            outline: 'none',
+          }}
+        />
+      </label>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+        <button
+          onClick={() => setCount(c => c + 1)}
+          style={{
+            padding: '0.5rem 1.25rem',
+            background: 'rebeccapurple',
+            color: 'white',
+            border: 'none',
+            borderRadius: '6px',
+            fontWeight: 600,
+            cursor: 'pointer',
+            fontSize: '0.875rem',
+            fontFamily: 'sans-serif',
+          }}
+        >
+          Aggiungi nota
+        </button>
+        <span style={{ fontSize: '0.875rem', color: '#64748b' }}>
+          {count} nota{count !== 1 ? 'e' : ''}
+        </span>
+      </div>
+    </div>
+  );
+}`,
+  }}
+  activeFile="/App.js"
+/>
+
+## Playground 2 — Pulizia dell'intervallo
+
+`Timer` avvia un `setInterval` al mount e lo cancella nella funzione di pulizia. Alterna il timer — ogni mount avvia un intervallo fresco, ogni unmount lo cancella. Prova a rimuovere la riga `return () => clearInterval(id)` e ad alternare rapidamente; senza pulizia gli intervalli si accumulano e il contatore accelera ad ogni remount.
+
+<Playground
+  files={{
+    '/Timer.js': `import { useState, useEffect } from 'react';
+
+export function Timer() {
+  const [secondi, setSecondi] = useState(0);
+
+  useEffect(() => {
+    // Effect: avvia l'intervallo al mount
+    const id = setInterval(() => {
+      setSecondi(prev => prev + 1); // updater funzionale — nessuna stale closure
+    }, 1000);
+
+    // Pulizia: ferma l'intervallo all'unmount
+    return () => clearInterval(id);
+  }, []); // deps vuote — gira una volta al mount
+
+  return (
+    <div style={{
+      padding: '1.5rem',
+      background: 'white',
+      border: '1px solid #e2e8f0',
+      borderRadius: '8px',
+      textAlign: 'center',
+      fontFamily: 'sans-serif',
+    }}>
+      <p style={{ margin: '0 0 0.25rem', fontSize: '3rem', fontWeight: 700, color: 'rebeccapurple', lineHeight: 1 }}>
+        {secondi}
+      </p>
+      <p style={{ margin: 0, fontSize: '0.8rem', color: '#94a3b8' }}>secondi trascorsi</p>
+    </div>
+  );
+}`,
+    '/App.js': `import { useState } from 'react';
+import { Timer } from './Timer';
+
+export default function App() {
+  const [mostra, setMostra] = useState(true);
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '320px' }}>
+      <button
+        onClick={() => setMostra(v => !v)}
+        style={{
+          padding: '0.5rem 1.25rem',
+          background: mostra ? '#fee2e2' : '#f0fdf4',
+          color: mostra ? '#dc2626' : '#16a34a',
+          border: 'none',
+          borderRadius: '6px',
+          fontWeight: 600,
+          cursor: 'pointer',
+          fontSize: '0.875rem',
+          fontFamily: 'sans-serif',
+          marginBottom: '1.25rem',
+          display: 'block',
+        }}
+      >
+        {mostra ? 'Smonta timer' : 'Monta timer'}
+      </button>
+
+      {mostra ? (
+        <Timer />
+      ) : (
+        <div style={{
+          padding: '1.5rem',
+          background: '#f8fafc',
+          border: '1px dashed #cbd5e1',
+          borderRadius: '8px',
+          textAlign: 'center',
+          color: '#94a3b8',
+          fontSize: '0.875rem',
+        }}>
+          Timer smontato — intervallo cancellato.
+        </div>
+      )}
+
+      <p style={{ marginTop: '1rem', fontSize: '0.75rem', color: '#94a3b8' }}>
+        Rimuovi il return di pulizia e alterna rapidamente — gli intervalli si accumulano.
+      </p>
+    </div>
+  );
+}`,
+  }}
+  activeFile="/Timer.js"
+/>
+
+## Playground 3 — Fetch in un effect
+
+L'effect usa un flag `ignora` come pulizia per cancellare le risposte stale — se il componente si smonta prima che il fetch si risolva, gli aggiornamenti di stato vengono saltati. Questo è il pattern minimo vitale per il fetching basato su effect.
+
+<Playground
+  files={{
+    '/App.js': `import { useState, useEffect } from 'react';
+
+export default function App() {
+  const [utenti, setUtenti] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [errore, setErrore] = useState(null);
+
+  useEffect(() => {
+    let ignora = false; // flag di pulizia
+
+    setLoading(true);
+    setErrore(null);
+
+    fetch('https://jsonplaceholder.typicode.com/users')
+      .then(res => {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(dati => {
+        if (!ignora) {
+          setUtenti(dati.slice(0, 5));
+          setLoading(false);
+        }
+      })
+      .catch(err => {
+        if (!ignora) {
+          setErrore(err.message);
+          setLoading(false);
+        }
+      });
+
+    return () => { ignora = true; }; // cancella all'unmount o alla nuova esecuzione
+  }, []); // fetch una volta al mount
+
+  if (loading) return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', color: '#94a3b8' }}>
+      Caricamento utenti…
+    </div>
+  );
+
+  if (errore) return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', color: '#dc2626' }}>
+      Errore: {errore}
+    </div>
+  );
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '400px' }}>
+      <p style={{ margin: '0 0 0.75rem', fontSize: '0.75rem', color: '#94a3b8' }}>
+        jsonplaceholder.typicode.com — primi 5 risultati
+      </p>
+      <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        {utenti.map(u => (
+          <li key={u.id} style={{
+            padding: '0.625rem 0.875rem',
+            background: 'white',
+            border: '1px solid #e2e8f0',
+            borderRadius: '6px',
+          }}>
+            <strong style={{ display: 'block', fontSize: '0.875rem' }}>{u.name}</strong>
+            <span style={{ color: '#64748b', fontSize: '0.8rem' }}>{u.email}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}`,
+  }}
+  activeFile="/App.js"
+/>
+
+<Callout type="warn">
+Questo pattern di fetch è mostrato qui per illustrare come gli effect interagiscono con il codice asincrono — non come l'approccio consigliato in produzione. Ha problemi reali: nessuna deduplicazione delle richieste, nessuna cache (ogni mount richiede di nuovo i dati) e scatta due volte in Strict Mode (il flag `ignora` lo gestisce, ma due richieste di rete vengono comunque inviate). Nel prossimo capitolo spostiamo tutto il fetching dei dati nei **Server Components**, che girano sul server prima che la pagina raggiunga il browser — eliminando gli stati di loading, evitando i problemi CORS e rimuovendo completamente questa categoria di bug.
+</Callout>
+
+---
+
+## Punti chiave
+
+<Callout type="tip">
+**Gli effect girano dopo il dipingere, non durante il render.** La sequenza è render → commit → dipingere → effect. Non aspettarti mai che un effect blocchi il browser dal mostrare l'aggiornamento. Per le misurazioni pre-dipingere usa `useLayoutEffect`.
+
+**L'array di dipendenze controlla quando il tuo effect gira.** `[]` significa una volta al mount. `[a, b]` significa mount più ogni volta che `a` o `b` cambia (per riferimento). Nessun array significa dopo ogni render — quasi mai quello che vuoi. Fidati della regola ESLint exhaustive-deps.
+
+**Restituisci sempre una funzione di pulizia quando avvii qualcosa.** Intervalli, subscription, event listener e abort controller necessitano tutti di pulizia. React la chiama prima della prossima esecuzione e all'unmount. Lo Strict Mode invoca due volte per rilevare la pulizia mancante.
+
+**Gli updater funzionali eliminano le stale closure negli intervalli.** `setCount(prev => prev + 1)` non ha bisogno di `count` nell'array di dipendenze perché non legge `count` — riceve il valore più recente come argomento.
+
+**Chiediti "è davvero un effect?" prima di scriverne uno.** I valori derivati appartengono al render. Le risposte agli eventi utente appartengono agli handler. Sincronizzarsi con sistemi esterni — DOM, timer, subscription, rete — è ciò per cui gli effect esistono.
+</Callout>
+
+---
+
+**Riferimenti:** [Sincronizzarsi con gli Effect](https://react.dev/learn/synchronizing-with-effects) · [Potresti Non Aver Bisogno di un Effect](https://react.dev/learn/you-might-not-need-an-effect) · [useEffect](https://react.dev/reference/react/useEffect)

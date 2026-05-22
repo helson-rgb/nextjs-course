@@ -1,0 +1,170 @@
+# Deploy & Otimização
+
+Um app Next.js está pronto para produção no momento em que `next build` termina sem erros. Fazer o deploy na Vercel leva três comandos; ler a saída do build indica exatamente como cada rota é renderizada e cacheada; o Lighthouse mede o que os usuários realmente experienciam.
+
+## `next build` — lendo a saída
+
+Execute o build de produção antes de cada deploy:
+
+```bash
+npm run build
+```
+
+A tabela de saída do build mostra cada rota e como ela será servida:
+
+```
+Route (app)                     Revalidate  Expire
+┌ ○ /                                               ← static
+├ ● /lessons/[slug]                                 ← SSG (pre-rendered)
+│ ├ /lessons/jsx-and-rendering
+│ └ [+16 more paths]
+├ ƒ /api/notes                                      ← dynamic (server)
+├ ƒ /api/notes/[id]
+└ ○ /playground/notes                               ← static
+```
+
+| Símbolo | Significado |
+|---|---|
+| `○` | Estático — HTML pré-renderizado, servido pelo CDN |
+| `●` | SSG — gerado estaticamente a partir de `generateStaticParams` |
+| `ƒ` | Dinâmico — renderizado no servidor sob demanda |
+
+Uma rota sem nenhuma API dinâmica (`cookies()`, `headers()`, `searchParams`) e sem fetches com `cache: 'no-store'` é compilada como HTML estático. Uma rota que acessa dados em tempo de requisição se torna dinâmica. O objetivo é manter o maior número possível de rotas nas colunas `○` ou `●`.
+
+### Erros de build são erros de produção
+
+Nunca faça o deploy sem um build limpo. Erros de TypeScript, importações de módulos ausentes e erros de parse do MDX aparecem aqui. Se `next build` falhar localmente, também falhará na Vercel.
+
+## Variáveis de ambiente
+
+Defina segredos no `.env.local` para desenvolvimento local. Nunca faça commit desse arquivo:
+
+```bash
+# .env.local  (add to .gitignore)
+DATABASE_URL=postgres://...
+REVALIDATE_SECRET=my-secret-key
+```
+
+Na Vercel, defina as mesmas variáveis em **Settings → Environment Variables**. Elas são injetadas no momento do build e em tempo de execução.
+
+### Prefixo `NEXT_PUBLIC_`
+
+Variáveis sem esse prefixo estão disponíveis apenas no servidor (em Server Components, Route Handlers, Server Actions). Adicione `NEXT_PUBLIC_` para expor uma variável ao bundle do navegador — mas nunca use isso para segredos:
+
+```js
+// Somente no servidor (seguro para segredos)
+process.env.DATABASE_URL
+
+// Exposto ao navegador (nunca coloque segredos aqui)
+process.env.NEXT_PUBLIC_API_BASE_URL
+```
+
+## Deploy na Vercel
+
+A Vercel é o alvo de deploy de referência para o Next.js — ela entende a saída do build de forma nativa. Todo o roteamento, streaming, ISR e otimização de imagens funcionam sem configuração.
+
+### Passo a passo
+
+**1. Faça o push do seu código para o GitHub (ou GitLab / Bitbucket).**
+
+**2. Importe o repositório em [vercel.com](https://vercel.com/new).** A Vercel detecta o Next.js e configura automaticamente o comando de build e o diretório de saída.
+
+**3. Adicione as variáveis de ambiente** no painel da Vercel antes do primeiro deploy.
+
+**4. Clique em Deploy.** A Vercel executa `next build`, envia os assets estáticos para o CDN e faz o deploy das funções de servidor.
+
+Cada push subsequente para `main` (ou sua branch de produção) dispara um novo deploy. Pull requests recebem **deployments de preview** — URLs isoladas que refletem o estado da branch, compartilháveis com colegas antes do merge.
+
+### O que a Vercel faz por você
+
+| Recurso | O que a Vercel faz |
+|---|---|
+| Assets estáticos | Servidos a partir de nós de CDN globais |
+| Rotas dinâmicas (`ƒ`) | Executadas como funções serverless |
+| ISR (`next: { revalidate }`) | Stale-while-revalidate no edge |
+| `next/image` | Redimensionamento e conversão de formato sob demanda |
+| Streaming SSR | Suportado nativamente |
+
+## Otimização de imagens em produção
+
+`next/image` redimensiona e converte imagens no servidor. Na Vercel, isso é executado como uma função de edge — a primeira requisição dispara o redimensionamento; as requisições seguintes são servidas do cache.
+
+Se você fizer o deploy em outro lugar (servidor Node.js, Docker), o endpoint de otimização de imagens é executado como parte do processo Node.js. Nenhuma configuração extra é necessária — `next start` cuida disso.
+
+Para desativar a otimização completamente (por exemplo, para export estático):
+
+```js
+// next.config.js
+const nextConfig = {
+  images: { unoptimized: true },
+}
+```
+
+## `next/font` em produção
+
+`next/font` busca os arquivos de fonte do Google em **tempo de build** e os inclui no deploy. As fontes são servidas pelo seu próprio domínio — sem requisição ao Google em tempo de execução, sem problemas com headers CORS, sem complicações com consent de cookies. Isso funciona de forma idêntica na Vercel, em um container Docker ou em qualquer host Node.js.
+
+## Medindo performance com o Lighthouse
+
+Execute o Lighthouse no Chrome DevTools (ou `npx lighthouse <url>`) contra sua URL de **produção**, não o localhost. O modo de desenvolvimento inclui logging extra e desativa algumas otimizações.
+
+```bash
+# Executar o Lighthouse pela CLI contra uma URL em produção
+npx lighthouse https://your-app.vercel.app --output html --view
+```
+
+### Principais métricas a alcançar
+
+| Métrica | Meta | O que mede |
+|---|---|---|
+| **LCP** — Largest Contentful Paint | < 2,5 s | Tempo até o maior elemento visível ser carregado |
+| **CLS** — Cumulative Layout Shift | < 0,1 | Quanto o layout se desloca durante o carregamento |
+| **FID / INP** — Interaction to Next Paint | < 200 ms | Capacidade de resposta à interação do usuário |
+| **TTFB** — Time to First Byte | < 800 ms | Velocidade de resposta do servidor |
+
+O Next.js trata o CLS com `next/font` (sem deslocamento de troca de fonte) e `next/image` (espaço reservado para imagens). Trata o LCP com streaming SSR (o shell chega rapidamente) e ISR (HTML cacheado servido imediatamente). O TTFB é baixo para rotas estáticas e SSG porque são servidas diretamente pelo CDN.
+
+### Problemas comuns no Lighthouse e como corrigi-los
+
+**LCP alto** — a imagem principal não está marcada com `priority` no componente `<Image>`. Adicione `priority` à primeira imagem acima da dobra.
+
+**CLS causado por fontes** — fontes carregadas via `<link>` do Google Fonts em tempo de execução. Migre para `next/font/google`.
+
+**JavaScript não utilizado** — um bundle grande de Client Components. Audite os componentes com `'use client'`; extraia subárvores de Server Components onde a interatividade não é necessária.
+
+**TTFB lento em uma rota dinâmica** — o servidor está fazendo muito trabalho por requisição. Adicione caching (`revalidatePath`, `unstable_cache`) ou mova a rota para estático/ISR.
+
+---
+
+## Fazendo o deploy deste app do curso
+
+O app do curso Next.js Academy já está otimizado para produção:
+
+- Todas as páginas de lição são `●` SSG — pré-renderizadas no momento do build a partir de `generateStaticParams`
+- `/playground/notes` é `○` estático — sem dados dinâmicos
+- `/api/notes` e `/playground/posts/[id]` são `ƒ` dinâmicos — por design
+- Fontes carregadas via `next/font/google` — zero CLS
+- `generateMetadata` + `opengraph-image.js` em cada lição — suporte completo a OG
+- `next/image` está disponível para qualquer asset de imagem adicionado no futuro
+
+Para fazer o deploy: push para o GitHub, importe na Vercel, adicione as variáveis de ambiente necessárias, faça o deploy.
+
+---
+
+## Principais conclusões
+
+<Callout type="tip">
+**Leia a saída do build antes de cada deploy.** A tabela `○ ● ƒ` indica exatamente como cada rota é servida. Símbolos `ƒ` inesperados significam que algo forçou uma rota a se tornar dinâmica — geralmente um `fetch` sem cache ou uma chamada a `cookies()`.
+
+**Variáveis de ambiente seguem a regra do `NEXT_PUBLIC_`.** Qualquer variável sem esse prefixo permanece exclusiva do servidor. Nunca exponha segredos ao bundle do navegador.
+
+**O CDN da Vercel serve assets estáticos globalmente.** Rotas dinâmicas se tornam funções serverless. Revalidações do ISR acontecem no edge. Nenhuma configuração necessária — o formato de saída do build é nativo à plataforma.
+
+**Execute o Lighthouse contra a produção, não o ambiente de dev.** Mire LCP < 2,5 s, CLS < 0,1, INP < 200 ms. `next/font` e `next/image` resolvem o CLS nativamente; adicione `priority` às imagens acima da dobra para o LCP.
+
+**Um `next build` limpo é pré-requisito para um deploy limpo.** Corrija os erros de build localmente — eles não desaparecerão no servidor.
+</Callout>
+
+---
+
+**Referências:** [Deploying](https://nextjs.org/docs/app/getting-started/deploying) · [Environment Variables](https://nextjs.org/docs/app/guides/environment-variables) · [next/image](https://nextjs.org/docs/app/api-reference/components/image) · [Lighthouse](https://developer.chrome.com/docs/lighthouse/overview/)

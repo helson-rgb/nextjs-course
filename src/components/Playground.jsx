@@ -9,6 +9,7 @@ export function Playground({
   dependencies = {},
   activeFile,
   height = 420,
+  template = 'react',
 }) {
   const [isDark, setIsDark] = useState(false);
 
@@ -24,7 +25,7 @@ export function Playground({
   return (
     <div className="not-prose my-8 overflow-hidden rounded-lg border border-border shadow-md">
       <Sandpack
-        template="react"
+        template={template}
         theme={isDark ? 'dark' : 'light'}
         files={files}
         customSetup={{ dependencies }}

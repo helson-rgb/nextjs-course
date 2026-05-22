@@ -1,0 +1,298 @@
+# Rotas Dinâmicas
+
+A maioria das rotas em uma aplicação real não é conhecida no momento da escrita — slugs de blog, IDs de produtos, perfis de usuário. Segmentos de rota dinâmicos permitem definir um único arquivo que lida com um conjunto infinito de URLs. O Next.js preenche o segmento no momento da requisição (ou no momento do build com `generateStaticParams`).
+
+## A convenção de pasta `[param]`
+
+Envolva o nome de uma pasta com colchetes para torná-la dinâmica:
+
+```
+app/
+└── blog/
+    ├── page.js          ← /blog
+    └── [slug]/
+        └── page.js      ← /blog/qualquer-coisa, /blog/hello-world, /blog/42
+```
+
+O nome do segmento dentro dos colchetes torna-se uma chave no objeto `params`. No Next.js 16, `params` é uma **Promise** — sempre use `await` antes de ler os valores:
+
+```jsx
+// app/blog/[slug]/page.js
+export default async function BlogPost({ params }) {
+  const { slug } = await params   // ← obrigatório usar await no Next.js 16
+  return <h1>{slug}</h1>
+}
+```
+
+Em um Client Component, use o `use()` do React para desempacotar a promise:
+
+```jsx
+'use client'
+import { use } from 'react'
+
+export default function BlogPost({ params }) {
+  const { slug } = use(params)
+  return <h1>{slug}</h1>
+}
+```
+
+## Múltiplos segmentos dinâmicos
+
+Aninhe pastas dinâmicas para rotas com mais de uma parte variável:
+
+```
+app/shop/[category]/[product]/page.js
+```
+
+| URL | `params` |
+|---|---|
+| `/shop/shoes/air-max` | `{ category: 'shoes', product: 'air-max' }` |
+| `/shop/bags/tote-01` | `{ category: 'bags', product: 'tote-01' }` |
+
+```jsx
+export default async function ProductPage({ params }) {
+  const { category, product } = await params
+  // ...
+}
+```
+
+## `notFound()` — tratando params desconhecidos
+
+Quando o valor de um param não corresponde a dados reais, chame `notFound()` de `next/navigation`. O Next.js renderiza o `not-found.js` mais próximo e retorna um 404:
+
+```jsx
+import { notFound } from 'next/navigation'
+
+const POSTS = {
+  'hello-world': { title: 'Hello World', body: '...' },
+  'next-js-tips': { title: 'Next.js Tips', body: '...' },
+}
+
+export default async function BlogPost({ params }) {
+  const { slug } = await params
+  const post = POSTS[slug]
+  if (!post) notFound()    // 404 para qualquer slug desconhecido
+  return <article>{post.title}</article>
+}
+```
+
+## `generateStaticParams` — pré-renderização no momento do build
+
+Por padrão, uma rota dinâmica é renderizada sob demanda — o servidor resolve `params` quando a requisição chega. Exporte `generateStaticParams` para dizer ao Next.js quais valores de param pré-renderizar como HTML estático durante o `next build`:
+
+```jsx
+// app/blog/[slug]/page.js
+export async function generateStaticParams() {
+  const posts = await fetch('https://api.example.com/posts').then(r => r.json())
+
+  return posts.map(post => ({ slug: post.slug }))
+  // ex.: [{ slug: 'hello-world' }, { slug: 'next-js-tips' }, ...]
+}
+
+export default async function BlogPost({ params }) {
+  const { slug } = await params
+  // ...
+}
+```
+
+O Next.js chama `generateStaticParams` uma vez durante o build, gera um arquivo HTML para cada slug retornado e serve esses arquivos diretamente da CDN — sem processamento no servidor no momento da requisição.
+
+### `generateStaticParams` com deduplicação de `fetch`
+
+Se `generateStaticParams` e o componente de página chamarem a mesma URL de `fetch`, o Next.js deduplica a requisição de rede. Os dados são buscados uma vez e compartilhados entre ambas as funções.
+
+### `dynamicParams` — 404 para slugs não listados
+
+Por padrão, slugs não retornados por `generateStaticParams` são renderizados sob demanda (com fallback para o servidor). Defina `dynamicParams = false` para retornar um 404 em vez disso:
+
+```jsx
+export const dynamicParams = false   // slugs desconhecidos → 404
+
+export async function generateStaticParams() {
+  return [{ slug: 'hello-world' }, { slug: 'next-js-tips' }]
+}
+```
+
+## Segmentos catch-all — `[...slug]`
+
+Adicione `...` dentro dos colchetes para corresponder a qualquer número de segmentos de caminho:
+
+```
+app/docs/[...slug]/page.js
+```
+
+| URL | `params.slug` |
+|---|---|
+| `/docs/intro` | `['intro']` |
+| `/docs/api/hooks` | `['api', 'hooks']` |
+| `/docs/api/hooks/useEffect` | `['api', 'hooks', 'useEffect']` |
+
+```jsx
+export default async function DocsPage({ params }) {
+  const { slug } = await params  // slug é um string[]
+  const path = slug.join('/')    // 'api/hooks'
+  // ...
+}
+```
+
+`/docs` em si (sem slug) retorna 404 com um catch-all. Use um catch-all **opcional** se quiser corresponder também ao caminho pai.
+
+## Catch-all opcional — `[[...slug]]`
+
+Colchetes duplos tornam todo o segmento opcional:
+
+```
+app/docs/[[...slug]]/page.js
+```
+
+| URL | `params.slug` |
+|---|---|
+| `/docs` | `undefined` |
+| `/docs/intro` | `['intro']` |
+| `/docs/api/hooks` | `['api', 'hooks']` |
+
+```jsx
+export default async function DocsPage({ params }) {
+  const { slug } = await params
+  if (!slug) return <DocsHome />           // /docs
+  return <DocPage path={slug.join('/')} /> // /docs/qualquer-coisa
+}
+```
+
+---
+
+## O app do curso — duas rotas dinâmicas
+
+Este curso usa `[slug]` e `[id]` em dois lugares:
+
+**`src/app/lessons/[slug]/page.js`** — todas as 17 lições são pré-renderizadas no momento do build. `generateStaticParams` retorna uma entrada `{ slug }` por lição no registro. Slugs desconhecidos caem para o `notFound()`.
+
+```jsx
+// src/app/lessons/[slug]/page.js (simplificado)
+export async function generateStaticParams() {
+  return getAllLessons().map(lesson => ({ slug: lesson.slug }))
+}
+
+export default async function LessonPage({ params }) {
+  const { slug } = await params
+  const lesson = getLessonBySlug(slug)
+  if (!lesson) notFound()
+  // ...
+}
+```
+
+**`src/app/playground/posts/[id]/page.js`** — busca dados de `jsonplaceholder.typicode.com` sob demanda. Sem `generateStaticParams` — cada ID de post é resolvido no servidor no momento da requisição.
+
+---
+
+## Playground — blog com rotas dinâmicas
+
+Um blog mínimo com três posts fixos. Navegue entre os posts para ver o slug mudar. Tente `/blog/not-a-real-post` — ele acessa o branch `notFound()` e exibe uma UI de 404.
+
+<Playground
+  template="nextjs"
+  files={{
+    'app/page.js': `import Link from 'next/link';
+
+const posts = [
+  { slug: 'hello-world',  title: 'Hello, World!' },
+  { slug: 'next-routing', title: 'How Next.js Routing Works' },
+  { slug: 'react-server', title: 'React Server Components' },
+];
+
+export default function Home() {
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '480px' }}>
+      <h1 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '1rem' }}>Blog</h1>
+      <ul style={{ listStyle: 'none', padding: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        {posts.map(post => (
+          <li key={post.slug}>
+            <Link
+              href={'/blog/' + post.slug}
+              style={{ color: '#4f46e5', textDecoration: 'none', fontSize: '0.875rem' }}
+            >
+              {post.title} →
+            </Link>
+          </li>
+        ))}
+        <li>
+          <Link
+            href="/blog/not-a-real-post"
+            style={{ color: '#dc2626', textDecoration: 'none', fontSize: '0.875rem' }}
+          >
+            /blog/not-a-real-post (→ 404)
+          </Link>
+        </li>
+      </ul>
+    </div>
+  );
+}`,
+    'app/blog/[slug]/page.js': `import Link from 'next/link';
+import { notFound } from 'next/navigation';
+
+const posts = {
+  'hello-world':  { title: 'Hello, World!', body: 'Your first post. The slug is read from the URL and passed as params.' },
+  'next-routing': { title: 'How Next.js Routing Works', body: 'File-system based routing — folders become segments, page.js becomes the UI.' },
+  'react-server': { title: 'React Server Components', body: 'Components that render on the server and send HTML to the browser. Zero JS shipped.' },
+};
+
+export async function generateStaticParams() {
+  return Object.keys(posts).map(slug => ({ slug }));
+}
+
+export default async function BlogPost({ params }) {
+  const { slug } = await params;     // params is a Promise in Next.js 16
+
+  const post = posts[slug];
+  if (!post) notFound();             // unknown slug → 404
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '480px' }}>
+      <Link href="/" style={{ fontSize: '0.75rem', color: '#64748b' }}>← Back</Link>
+      <h1 style={{ fontSize: '1.25rem', fontWeight: 700, margin: '1rem 0 0.5rem' }}>
+        {post.title}
+      </h1>
+      <p style={{ fontSize: '0.875rem', color: '#475569', lineHeight: 1.6 }}>{post.body}</p>
+      <p style={{ marginTop: '1.5rem', fontSize: '0.7rem', color: '#94a3b8' }}>
+        Slug from params: <code style={{ background: '#f1f5f9', padding: '2px 4px', borderRadius: '3px' }}>{slug}</code>
+      </p>
+    </div>
+  );
+}`,
+    'app/blog/[slug]/not-found.js': `import Link from 'next/link';
+
+export default function NotFound() {
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '480px' }}>
+      <h1 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#dc2626' }}>404 — Post not found</h1>
+      <p style={{ fontSize: '0.875rem', color: '#64748b', margin: '0.5rem 0 1rem' }}>
+        That slug does not exist in the posts object.
+      </p>
+      <Link href="/" style={{ fontSize: '0.875rem', color: '#4f46e5' }}>← Back to blog</Link>
+    </div>
+  );
+}`,
+  }}
+  activeFile="app/blog/[slug]/page.js"
+  height={480}
+/>
+
+---
+
+## Principais conclusões
+
+<Callout type="tip">
+**`params` é uma Promise no Next.js 16.** Sempre use `await params` em Server Components antes de desestruturar. Em Client Components, use `use(params)` do React.
+
+**`generateStaticParams` move a renderização para o momento do build.** Retorne um array de objetos de param e o Next.js pré-renderiza um arquivo HTML estático para cada um. Slugs desconhecidos são tratados sob demanda, a menos que você defina `dynamicParams = false`.
+
+**`notFound()` renderiza o `not-found.js` mais próximo.** Chame-o quando um valor de param não corresponder a dados reais — após um fetch com await retornar null, ou após uma busca em um mapa local falhar.
+
+**Catch-all `[...slug]` corresponde a múltiplos segmentos como um array.** O `[[...slug]]` opcional também corresponde ao caminho pai (onde `slug` é `undefined`).
+
+**Requisições `fetch` de `generateStaticParams` são deduplicadas.** Se o componente de página chamar a mesma URL, o Next.js faz apenas uma requisição de rede durante o build.
+</Callout>
+
+---
+
+**Referências:** [Dynamic Routes](https://nextjs.org/docs/app/api-reference/file-conventions/dynamic-routes) · [generateStaticParams](https://nextjs.org/docs/app/api-reference/functions/generate-static-params) · [notFound](https://nextjs.org/docs/app/api-reference/functions/not-found)

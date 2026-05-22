@@ -1,0 +1,465 @@
+# Stato ed Eventi
+
+Lo stato è il modo in cui React ricorda le cose tra un render e l'altro. Ogni UI interattiva — un contatore, un form, un toggle — è alimentata dallo stato.
+
+## Cos'è lo stato
+
+Una variabile JavaScript normale si azzera ad ogni render. React chiama di nuovo la tua funzione componente ogni volta che deve aggiornare lo schermo; qualsiasi dichiarazione `let` reinizia da capo ogni volta:
+
+```jsx
+// ❌ Non funziona mai — count si azzera a 0 ad ogni render
+function Counter() {
+  let count = 0;
+  return (
+    <button onClick={() => { count += 1; console.log(count); }}>
+      Count: {count}
+    </button>
+  );
+}
+```
+
+Il click sul bottone scatta, `count` raggiunge 1, ma lo schermo non cambia mai — React non sa che è successo niente. Lo stato è la soluzione: React lo conserva *fuori* dalla tua funzione e restituisce il valore corrente ad ogni render:
+
+```jsx
+import { useState } from 'react';
+
+function Counter() {
+  const [count, setCount] = useState(0);
+
+  return (
+    <button onClick={() => setCount(count + 1)}>
+      Count: {count}
+    </button>
+  );
+}
+```
+
+Chiamare `setCount` dice a React "ri-renderizza questo componente". React chiama di nuovo la tua funzione — e questa volta restituisce il nuovo valore di `count`.
+
+## Dichiarare lo stato con useState
+
+```jsx
+const [valore, setValore] = useState(valoreIniziale);
+```
+
+- `valore` — lo snapshot corrente dello stato per questo render.
+- `setValore` — chiamalo per programmare un re-render con un nuovo valore.
+- `valoreIniziale` — usato solo al primo render; può essere un numero, stringa, oggetto, array o `null`.
+
+**Due regole per gli hook:**
+- Chiama `useState` (e tutti gli hook) **al livello superiore** del tuo componente — mai dentro `if`, cicli o funzioni annidate.
+- Chiama gli hook solo all'interno di componenti funzionali React o hook personalizzati.
+
+React identifica ogni pezzo di stato dall'ordine in cui viene chiamato `useState`. Cambiare quell'ordine tra i render rompe la corrispondenza tra le chiamate e i valori memorizzati.
+
+## Gli aggiornamenti di stato sono asincroni
+
+Chiamare un setter non aggiorna la variabile immediatamente. React programma un re-render e il nuovo valore è visibile solo nel *render successivo*. Il valore del render corrente è fisso — è una costante:
+
+```jsx
+function Counter() {
+  const [count, setCount] = useState(0);
+
+  function handleClick() {
+    setCount(count + 1);
+    console.log(count); // ⚠️ È ancora 0 — il render non è ancora avvenuto
+  }
+
+  return <button onClick={handleClick}>Count: {count}</button>;
+}
+```
+
+<Callout type="warn">
+`console.log(count)` subito dopo `setCount` stampa sempre il **vecchio valore**. `count` è una costante legata all'inizio di questo render — nulla può cambiarla a metà funzione. Il valore aggiornato appare solo quando React ri-renderizza e la tua funzione viene eseguita di nuovo.
+
+Questo significa anche che chiamare `setCount(count + 1)` più volte nello stesso handler incrementa solo una volta — ogni chiamata legge lo stesso snapshot obsoleto:
+
+```jsx
+// ❌ count inizia a 0 — tutte e tre le chiamate leggono 0, il risultato è 1
+setCount(count + 1);
+setCount(count + 1);
+setCount(count + 1);
+```
+
+Usa la forma dell'updater funzionale per concatenare più aggiornamenti correttamente.
+</Callout>
+
+## La forma dell'updater funzionale
+
+Quando il valore successivo dipende da quello precedente, passa una funzione invece di un valore:
+
+```jsx
+setCount(prev => prev + 1);
+```
+
+React mette in coda queste funzioni e le applica in ordine, ognuna ricevendo il risultato della precedente:
+
+```jsx
+// ✅ Ogni updater riceve l'ultimo prev — il risultato è 3
+setCount(prev => prev + 1);
+setCount(prev => prev + 1);
+setCount(prev => prev + 1);
+```
+
+Usa la forma funzionale ogni volta che:
+- Chiami il setter più volte in un handler.
+- Il nuovo stato dipende dallo stato corrente.
+- Sei dentro un `setTimeout`, un callback di `fetch`, o qualsiasi funzione asincrona in cui il `valore` catturato potrebbe essere obsoleto.
+
+## Gestori di eventi
+
+React passa un oggetto evento sintetico ad ogni gestore. I pattern più comuni:
+
+```jsx
+// onClick — scatta al click
+<button onClick={(e) => console.log(e.currentTarget)}>Clicca</button>
+
+// onChange — scatta ad ogni tasto premuto
+<input onChange={(e) => setText(e.target.value)} />
+
+// onSubmit — scatta all'invio del form
+<form onSubmit={(e) => { e.preventDefault(); invia(); }}>
+  ...
+</form>
+```
+
+**`e.preventDefault()`** blocca l'azione predefinita del browser. Per i form impedisce la navigazione della pagina; per i link impedisce di seguire l'href. Chiamalo prima, prima di qualsiasi aggiornamento di stato.
+
+Definisci i gestori come funzioni con nome quando la logica occupa più di una riga — mantiene il JSX leggibile e rende la funzione facile da testare:
+
+```jsx
+function handleChange(e) {
+  const tagliato = e.target.value.trimStart();
+  setText(tagliato);
+}
+
+return <input onChange={handleChange} />;
+```
+
+Passa il *riferimento* alla funzione, non una chiamata: `onChange={handleChange}`, non `onChange={handleChange()}`. La seconda forma viene eseguita immediatamente ad ogni render.
+
+## Non mutare mai lo stato direttamente
+
+React rileva i cambiamenti per uguaglianza di riferimento. Mutare un oggetto o array esistente non crea un nuovo riferimento — React vede lo stesso valore e salta il re-render:
+
+```jsx
+// ❌ Mutazione — React vede lo stesso oggetto, nessun re-render
+const next = state;
+next.count += 1;
+setState(next);
+
+// ✅ Nuovo oggetto — React vede un riferimento diverso, trigger re-render
+setState({ ...state, count: state.count + 1 });
+```
+
+### Pattern di aggiornamento immutabile
+
+**Oggetto — aggiornare un campo:**
+```jsx
+setState(prev => ({ ...prev, nome: 'Alice' }));
+```
+
+**Array — aggiungere un elemento:**
+```jsx
+setItems(prev => [...prev, nuovoElemento]);
+```
+
+**Array — rimuovere un elemento:**
+```jsx
+setItems(prev => prev.filter(item => item.id !== idTarget));
+```
+
+**Array — aggiornare un elemento:**
+```jsx
+setItems(prev =>
+  prev.map(item => item.id === idTarget ? { ...item, fatto: true } : item)
+);
+```
+
+Il pattern è sempre: produci o deriva un *nuovo* valore — non modificare mai quello che React già possiede.
+
+---
+
+## Playground 1 — Contatore con updater funzionale
+
+`Counter.js` ha un bottone +1 standard che usa la forma dell'updater funzionale. Il bottone +2 mostra come due chiamate consecutive `setCount(prev => prev + 1)` si accumulino correttamente. Prova a sostituire il bottone +2 con `setCount(count + 1)` due volte e osserva il contatore rimanere indietro di un passo — questo è il problema dello snapshot obsoleto in azione.
+
+<Playground
+  files={{
+    '/Counter.js': `import { useState } from 'react';
+
+export function Counter() {
+  const [count, setCount] = useState(0);
+
+  function incrementa() {
+    setCount(prev => prev + 1);
+  }
+
+  function incrementaDiDue() {
+    // Due updater funzionali — ognuno riceve l'ultimo prev
+    setCount(prev => prev + 1);
+    setCount(prev => prev + 1);
+  }
+
+  function azzera() {
+    setCount(0);
+  }
+
+  const btnBase = {
+    padding: '0.5rem 1.25rem',
+    borderRadius: '6px',
+    fontFamily: 'sans-serif',
+    fontSize: '0.875rem',
+    fontWeight: 600,
+    cursor: 'pointer',
+  };
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', textAlign: 'center' }}>
+      <p style={{ fontSize: '4rem', fontWeight: 700, margin: '0 0 1.5rem', color: 'rebeccapurple' }}>
+        {count}
+      </p>
+      <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+        <button onClick={incrementa} style={{ ...btnBase, background: 'rebeccapurple', color: 'white', border: 'none' }}>
+          +1
+        </button>
+        <button onClick={incrementaDiDue} style={{ ...btnBase, background: 'white', color: 'rebeccapurple', border: '2px solid rebeccapurple' }}>
+          +2
+        </button>
+        <button onClick={azzera} style={{ ...btnBase, background: 'transparent', color: '#64748b', border: '1px solid #e2e8f0' }}>
+          Azzera
+        </button>
+      </div>
+    </div>
+  );
+}`,
+    '/App.js': `import { Counter } from './Counter';
+
+export default function App() {
+  return <Counter />;
+}`,
+  }}
+  activeFile="/Counter.js"
+/>
+
+## Playground 2 — Alternare tra due viste
+
+Un singolo booleano — `isPreview` — controlla quale pannello viene renderizzato. Cliccare sui bottoni tab chiama `setIsPreview` con un valore semplice (non un updater funzionale) perché il valore successivo non dipende da quello precedente. Prova ad aggiungere un terzo tab e un pannello corrispondente.
+
+<Playground
+  files={{
+    '/App.js': `import { useState } from 'react';
+
+function PannelloModifica() {
+  return (
+    <div style={{
+      padding: '1.25rem',
+      background: '#f8fafc',
+      border: '1px dashed #cbd5e1',
+      borderRadius: '6px',
+      fontFamily: 'sans-serif',
+    }}>
+      <p style={{ margin: '0 0 0.5rem', fontWeight: 700, fontSize: '0.875rem' }}>Modifica</p>
+      <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b' }}>
+        Modalità modifica — apporta le tue modifiche qui.
+      </p>
+    </div>
+  );
+}
+
+function PannelloAnteprima() {
+  return (
+    <div style={{
+      padding: '1.25rem',
+      background: 'white',
+      border: '1px solid #e2e8f0',
+      borderRadius: '6px',
+      fontFamily: 'sans-serif',
+    }}>
+      <p style={{ margin: '0 0 0.5rem', fontWeight: 700, fontSize: '0.875rem' }}>Anteprima</p>
+      <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b' }}>
+        Modalità anteprima — output di sola lettura.
+      </p>
+    </div>
+  );
+}
+
+function Tab({ label, active, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        flex: 1,
+        padding: '0.375rem 0',
+        borderRadius: '6px',
+        border: 'none',
+        background: active ? 'white' : 'transparent',
+        color: active ? '#0f172a' : '#94a3b8',
+        fontWeight: active ? 600 : 400,
+        cursor: 'pointer',
+        fontSize: '0.875rem',
+        fontFamily: 'sans-serif',
+        boxShadow: active ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+        transition: 'all 0.15s',
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+export default function App() {
+  const [isPreview, setIsPreview] = useState(false);
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '420px' }}>
+      <div style={{
+        display: 'flex',
+        gap: '3px',
+        marginBottom: '1rem',
+        background: '#f1f5f9',
+        padding: '3px',
+        borderRadius: '8px',
+      }}>
+        <Tab label="Modifica"   active={!isPreview} onClick={() => setIsPreview(false)} />
+        <Tab label="Anteprima"  active={isPreview}  onClick={() => setIsPreview(true)}  />
+      </div>
+      {isPreview ? <PannelloAnteprima /> : <PannelloModifica />}
+    </div>
+  );
+}`,
+  }}
+  activeFile="/App.js"
+/>
+
+## Playground 3 — Lista di attività
+
+Lo stato è un array di oggetti `{ id, text }`. L'aggiunta usa il pattern spread (`[...prev, nuovoElemento]`); la rimozione usa `filter`. L'input di testo è un **componente controllato** — il suo `value` viene sempre letto dallo stato, e ogni tasto aggiorna lo stato tramite `onChange`. Prova ad aggiungere un bottone "Svuota tutto" che chiama `setAttivita([])`.
+
+<Playground
+  files={{
+    '/App.js': `import { useState } from 'react';
+
+const attivitaIniziali = [
+  { id: 1, text: 'Leggere la documentazione React' },
+  { id: 2, text: 'Costruire una lista di attività' },
+];
+
+export default function App() {
+  const [attivita, setAttivita] = useState(attivitaIniziali);
+  const [input, setInput] = useState('');
+
+  function aggiungiAttivita(e) {
+    e.preventDefault();
+    const text = input.trim();
+    if (!text) return;
+    setAttivita(prev => [...prev, { id: Date.now(), text }]);
+    setInput('');
+  }
+
+  function rimuoviAttivita(id) {
+    setAttivita(prev => prev.filter(a => a.id !== id));
+  }
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '400px' }}>
+      <h2 style={{ margin: '0 0 1rem', fontSize: '1.125rem', fontWeight: 700 }}>Le Mie Attività</h2>
+
+      <form onSubmit={aggiungiAttivita} style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+        <input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          placeholder="Aggiungi un'attività…"
+          style={{
+            flex: 1,
+            padding: '0.5rem 0.75rem',
+            border: '1px solid #e2e8f0',
+            borderRadius: '6px',
+            fontSize: '0.875rem',
+            fontFamily: 'sans-serif',
+            outline: 'none',
+          }}
+        />
+        <button
+          type="submit"
+          style={{
+            padding: '0.5rem 1rem',
+            background: 'rebeccapurple',
+            color: 'white',
+            border: 'none',
+            borderRadius: '6px',
+            fontWeight: 600,
+            cursor: 'pointer',
+            fontSize: '0.875rem',
+            fontFamily: 'sans-serif',
+          }}
+        >
+          Aggiungi
+        </button>
+      </form>
+
+      {attivita.length === 0 && (
+        <p style={{ color: '#94a3b8', fontSize: '0.875rem', textAlign: 'center', margin: '2rem 0' }}>
+          Nessuna attività ancora — aggiungine una sopra.
+        </p>
+      )}
+
+      <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        {attivita.map(a => (
+          <li
+            key={a.id}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '0.625rem 0.875rem',
+              background: 'white',
+              border: '1px solid #e2e8f0',
+              borderRadius: '6px',
+            }}
+          >
+            <span style={{ fontSize: '0.875rem' }}>{a.text}</span>
+            <button
+              onClick={() => rimuoviAttivita(a.id)}
+              aria-label="Rimuovi attività"
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#94a3b8',
+                cursor: 'pointer',
+                fontSize: '1.25rem',
+                lineHeight: 1,
+                padding: '0 0.25rem',
+              }}
+            >
+              ×
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}`,
+  }}
+  activeFile="/App.js"
+/>
+
+---
+
+## Punti chiave
+
+<Callout type="tip">
+**Lo stato è memoria fuori dalla funzione.** Le variabili locali si azzerano ad ogni render; lo stato persiste. React lo conserva, il tuo componente lo legge, e chiamare il setter programma il prossimo render.
+
+**Gli aggiornamenti di stato sono snapshot, non mutazioni.** Ogni render cattura il proprio valore di ogni variabile di stato. Chiamare un setter programma un re-render — il valore corrente non cambia mai a metà render. `console.log(valore)` dopo un setter mostra sempre lo snapshot vecchio.
+
+**Usa l'updater funzionale quando il nuovo stato dipende da quello vecchio.** `setX(prev => ...)` è la forma corretta quando chiami il setter più volte in un handler, in codice asincrono, o ovunque non puoi garantire che il valore catturato sia aggiornato.
+
+**Non mutare mai oggetti o array nello stato.** Produci sempre un nuovo valore: spread degli oggetti, spread degli array per aggiungere, `filter` per rimuovere, `map` per aggiornare. La mutazione aggira il rilevamento delle modifiche di React e lascia la UI desincronizzata.
+
+**`e.preventDefault()` prima.** Per gli invii di form e i click sui link, chiamalo prima di qualsiasi aggiornamento di stato per bloccare la navigazione predefinita del browser.
+</Callout>
+
+---
+
+**Riferimenti:** [Stato: La Memoria di un Componente](https://react.dev/learn/state-a-components-memory) · [Rispondere agli Eventi](https://react.dev/learn/responding-to-events) · [Aggiornare gli Array nello Stato](https://react.dev/learn/updating-arrays-in-state) · [useState](https://react.dev/reference/react/useState)

@@ -1,0 +1,298 @@
+# Dynamic Routes
+
+Most routes in a real app are not known at write time — blog slugs, product IDs, user profiles. Dynamic route segments let you define a single file that handles an infinite set of URLs. Next.js fills in the segment at request time (or at build time with `generateStaticParams`).
+
+## The `[param]` folder convention
+
+Wrap a folder name in square brackets to make it dynamic:
+
+```
+app/
+└── blog/
+    ├── page.js          ← /blog
+    └── [slug]/
+        └── page.js      ← /blog/anything, /blog/hello-world, /blog/42
+```
+
+The segment name inside the brackets becomes a key on the `params` object. In Next.js 16, `params` is a **Promise** — always `await` it before reading the values:
+
+```jsx
+// app/blog/[slug]/page.js
+export default async function BlogPost({ params }) {
+  const { slug } = await params   // ← must await in Next.js 16
+  return <h1>{slug}</h1>
+}
+```
+
+In a Client Component, use React's `use()` to unwrap the promise:
+
+```jsx
+'use client'
+import { use } from 'react'
+
+export default function BlogPost({ params }) {
+  const { slug } = use(params)
+  return <h1>{slug}</h1>
+}
+```
+
+## Multiple dynamic segments
+
+Nest dynamic folders for routes with more than one variable part:
+
+```
+app/shop/[category]/[product]/page.js
+```
+
+| URL | `params` |
+|---|---|
+| `/shop/shoes/air-max` | `{ category: 'shoes', product: 'air-max' }` |
+| `/shop/bags/tote-01` | `{ category: 'bags', product: 'tote-01' }` |
+
+```jsx
+export default async function ProductPage({ params }) {
+  const { category, product } = await params
+  // ...
+}
+```
+
+## `notFound()` — handling unknown params
+
+When a param value doesn't correspond to real data, call `notFound()` from `next/navigation`. Next.js renders the nearest `not-found.js` and returns a 404:
+
+```jsx
+import { notFound } from 'next/navigation'
+
+const POSTS = {
+  'hello-world': { title: 'Hello World', body: '...' },
+  'next-js-tips': { title: 'Next.js Tips', body: '...' },
+}
+
+export default async function BlogPost({ params }) {
+  const { slug } = await params
+  const post = POSTS[slug]
+  if (!post) notFound()    // 404 for any unknown slug
+  return <article>{post.title}</article>
+}
+```
+
+## `generateStaticParams` — pre-rendering at build time
+
+By default a dynamic route renders on demand — the server resolves `params` when the request arrives. Export `generateStaticParams` to tell Next.js which param values to pre-render as static HTML during `next build`:
+
+```jsx
+// app/blog/[slug]/page.js
+export async function generateStaticParams() {
+  const posts = await fetch('https://api.example.com/posts').then(r => r.json())
+
+  return posts.map(post => ({ slug: post.slug }))
+  // e.g. [{ slug: 'hello-world' }, { slug: 'next-js-tips' }, ...]
+}
+
+export default async function BlogPost({ params }) {
+  const { slug } = await params
+  // ...
+}
+```
+
+Next.js calls `generateStaticParams` once during the build, generates an HTML file for each returned slug, and serves those files directly from the CDN — no server computation at request time.
+
+### `generateStaticParams` with `fetch` deduplication
+
+If `generateStaticParams` and the page component both call the same `fetch` URL, Next.js deduplicates the network request. The data is fetched once and shared across both functions.
+
+### `dynamicParams` — 404 for unlisted slugs
+
+By default, slugs not returned by `generateStaticParams` are rendered on demand (falling back to the server). Set `dynamicParams = false` to return a 404 instead:
+
+```jsx
+export const dynamicParams = false   // unknown slugs → 404
+
+export async function generateStaticParams() {
+  return [{ slug: 'hello-world' }, { slug: 'next-js-tips' }]
+}
+```
+
+## Catch-all segments — `[...slug]`
+
+Add `...` inside the brackets to match any number of path segments:
+
+```
+app/docs/[...slug]/page.js
+```
+
+| URL | `params.slug` |
+|---|---|
+| `/docs/intro` | `['intro']` |
+| `/docs/api/hooks` | `['api', 'hooks']` |
+| `/docs/api/hooks/useEffect` | `['api', 'hooks', 'useEffect']` |
+
+```jsx
+export default async function DocsPage({ params }) {
+  const { slug } = await params  // slug is a string[]
+  const path = slug.join('/')    // 'api/hooks'
+  // ...
+}
+```
+
+`/docs` itself (no slug) returns 404 with a catch-all. Use an **optional** catch-all if you want to match the parent too.
+
+## Optional catch-all — `[[...slug]]`
+
+Double brackets make the whole segment optional:
+
+```
+app/docs/[[...slug]]/page.js
+```
+
+| URL | `params.slug` |
+|---|---|
+| `/docs` | `undefined` |
+| `/docs/intro` | `['intro']` |
+| `/docs/api/hooks` | `['api', 'hooks']` |
+
+```jsx
+export default async function DocsPage({ params }) {
+  const { slug } = await params
+  if (!slug) return <DocsHome />           // /docs
+  return <DocPage path={slug.join('/')} /> // /docs/anything
+}
+```
+
+---
+
+## The course app — two dynamic routes
+
+This course uses `[slug]` and `[id]` in two places:
+
+**`src/app/lessons/[slug]/page.js`** — all 17 lessons are pre-rendered at build time. `generateStaticParams` returns one `{ slug }` entry per lesson in the registry. Unknown slugs fall through to `notFound()`.
+
+```jsx
+// src/app/lessons/[slug]/page.js (simplified)
+export async function generateStaticParams() {
+  return getAllLessons().map(lesson => ({ slug: lesson.slug }))
+}
+
+export default async function LessonPage({ params }) {
+  const { slug } = await params
+  const lesson = getLessonBySlug(slug)
+  if (!lesson) notFound()
+  // ...
+}
+```
+
+**`src/app/playground/posts/[id]/page.js`** — fetches from `jsonplaceholder.typicode.com` on demand. No `generateStaticParams` — each post ID is resolved server-side at request time.
+
+---
+
+## Playground — blog with dynamic routes
+
+A minimal blog with three hardcoded posts. Navigate between posts to see the slug change. Try `/blog/not-a-real-post` — it hits the `notFound()` branch and shows a 404 UI.
+
+<Playground
+  template="nextjs"
+  files={{
+    'app/page.js': `import Link from 'next/link';
+
+const posts = [
+  { slug: 'hello-world',  title: 'Hello, World!' },
+  { slug: 'next-routing', title: 'How Next.js Routing Works' },
+  { slug: 'react-server', title: 'React Server Components' },
+];
+
+export default function Home() {
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '480px' }}>
+      <h1 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '1rem' }}>Blog</h1>
+      <ul style={{ listStyle: 'none', padding: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        {posts.map(post => (
+          <li key={post.slug}>
+            <Link
+              href={'/blog/' + post.slug}
+              style={{ color: '#4f46e5', textDecoration: 'none', fontSize: '0.875rem' }}
+            >
+              {post.title} →
+            </Link>
+          </li>
+        ))}
+        <li>
+          <Link
+            href="/blog/not-a-real-post"
+            style={{ color: '#dc2626', textDecoration: 'none', fontSize: '0.875rem' }}
+          >
+            /blog/not-a-real-post (→ 404)
+          </Link>
+        </li>
+      </ul>
+    </div>
+  );
+}`,
+    'app/blog/[slug]/page.js': `import Link from 'next/link';
+import { notFound } from 'next/navigation';
+
+const posts = {
+  'hello-world':  { title: 'Hello, World!', body: 'Your first post. The slug is read from the URL and passed as params.' },
+  'next-routing': { title: 'How Next.js Routing Works', body: 'File-system based routing — folders become segments, page.js becomes the UI.' },
+  'react-server': { title: 'React Server Components', body: 'Components that render on the server and send HTML to the browser. Zero JS shipped.' },
+};
+
+export async function generateStaticParams() {
+  return Object.keys(posts).map(slug => ({ slug }));
+}
+
+export default async function BlogPost({ params }) {
+  const { slug } = await params;     // params is a Promise in Next.js 16
+
+  const post = posts[slug];
+  if (!post) notFound();             // unknown slug → 404
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '480px' }}>
+      <Link href="/" style={{ fontSize: '0.75rem', color: '#64748b' }}>← Back</Link>
+      <h1 style={{ fontSize: '1.25rem', fontWeight: 700, margin: '1rem 0 0.5rem' }}>
+        {post.title}
+      </h1>
+      <p style={{ fontSize: '0.875rem', color: '#475569', lineHeight: 1.6 }}>{post.body}</p>
+      <p style={{ marginTop: '1.5rem', fontSize: '0.7rem', color: '#94a3b8' }}>
+        Slug from params: <code style={{ background: '#f1f5f9', padding: '2px 4px', borderRadius: '3px' }}>{slug}</code>
+      </p>
+    </div>
+  );
+}`,
+    'app/blog/[slug]/not-found.js': `import Link from 'next/link';
+
+export default function NotFound() {
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '480px' }}>
+      <h1 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#dc2626' }}>404 — Post not found</h1>
+      <p style={{ fontSize: '0.875rem', color: '#64748b', margin: '0.5rem 0 1rem' }}>
+        That slug does not exist in the posts object.
+      </p>
+      <Link href="/" style={{ fontSize: '0.875rem', color: '#4f46e5' }}>← Back to blog</Link>
+    </div>
+  );
+}`,
+  }}
+  activeFile="app/blog/[slug]/page.js"
+  height={480}
+/>
+
+---
+
+## Key takeaways
+
+<Callout type="tip">
+**`params` is a Promise in Next.js 16.** Always `await params` in Server Components before destructuring. In Client Components, use `use(params)` from React.
+
+**`generateStaticParams` moves rendering to build time.** Return an array of param objects and Next.js pre-renders a static HTML file for each. Unknown slugs are handled on demand unless you set `dynamicParams = false`.
+
+**`notFound()` renders the nearest `not-found.js`.** Call it when a param value doesn't correspond to real data — after an awaited fetch returns null, or after a lookup in a local map fails.
+
+**Catch-all `[...slug]` matches multiple segments as an array.** Optional `[[...slug]]` also matches the parent path (where `slug` is `undefined`).
+
+**`generateStaticParams` fetch requests are deduplicated.** If the page component calls the same URL, Next.js only makes one network request during the build.
+</Callout>
+
+---
+
+**References:** [Dynamic Routes](https://nextjs.org/docs/app/api-reference/file-conventions/dynamic-routes) · [generateStaticParams](https://nextjs.org/docs/app/api-reference/functions/generate-static-params) · [notFound](https://nextjs.org/docs/app/api-reference/functions/not-found)

@@ -1,0 +1,389 @@
+# Pattern di Data Fetching
+
+L'App Router cambia dove e come fai il data fetching. Invece di `useEffect` in un Client Component che viene eseguito dopo che il browser ha renderizzato, fai fetch direttamente in async Server Components che girano prima che qualsiasi HTML raggiunga il browser. Niente loading spinner di default. Nessun waterfall lato client. Nessuna API key esposta.
+
+## Async Server Components
+
+Qualsiasi Server Component può essere `async`. `await` funziona al livello superiore — esattamente come uno script Node.js:
+
+```jsx
+// src/app/blog/page.js
+export default async function BlogPage() {
+  const res = await fetch('https://api.example.com/posts');
+  const posts = await res.json();
+
+  return (
+    <ul>
+      {posts.map(post => <li key={post.id}>{post.title}</li>)}
+    </ul>
+  );
+}
+```
+
+React renderizza questo sul server, attende l'`await` e invia l'HTML finito. Il browser riceve una pagina completa — niente fetch JavaScript, nessuno spinner di hydration.
+
+## Come Next.js gestisce la cache del fetch
+
+Next.js estende la API nativa `fetch` con due namespace di opzioni aggiuntivi: `cache` e `next`.
+
+### cache: 'force-cache' — dati statici
+
+```jsx
+const res = await fetch('https://api.example.com/config', {
+  cache: 'force-cache',
+});
+```
+
+Next.js memorizza la risposta nella sua cache lato server. Alla prossima richiesta per lo stesso URL, restituisce la risposta dalla cache senza accedere alla rete. Usalo per dati che cambiano raramente: configurazione del sito, elenchi di paesi, categorie di prodotti.
+
+### cache: 'no-store' — sempre aggiornato
+
+```jsx
+const res = await fetch('https://api.example.com/cart', {
+  cache: 'no-store',
+});
+```
+
+Ignora completamente la cache. Ogni richiesta genera una vera chiamata di rete. Usalo per dati unici per utente o per richiesta: contenuto del carrello, notifiche, punteggi in diretta.
+
+### Comportamento predefinito (nessuna opzione specificata)
+
+Senza un'opzione `cache`, Next.js usa `'auto no cache'`:
+- **Durante `next build`**: esegue il fetch una volta e incorpora il risultato nell'HTML statico.
+- **A runtime**: se la route usa qualsiasi [API di request-time](https://nextjs.org/docs/app/api-reference/functions) (cookies, headers, searchParams), esegue il fetch ad ogni richiesta. Altrimenti serve la versione statica.
+
+È per questo che una pagina che legge solo il risultato di un `fetch` — senza chiamate a `cookies()` o `headers()` — viene renderizzata staticamente per default.
+
+### `next.revalidate` — ISR basato sul tempo
+
+```jsx
+// Rivalida ogni 60 secondi (Incremental Static Regeneration)
+const res = await fetch('https://api.example.com/posts', {
+  next: { revalidate: 60 },
+});
+```
+
+Next.js mette in cache la risposta e serve la versione cached. Quando la cache ha più di 60 secondi, la richiesta successiva avvia un aggiornamento in background. La risposta non aggiornata viene servita immediatamente mentre quella nuova viene recuperata — comportamento classico dell'ISR.
+
+`next: { revalidate: false }` mette in cache a tempo indefinito (come `force-cache`). `next: { revalidate: 0 }` impedisce il caching (come `no-store`).
+
+### `next.tags` — revalidazione on-demand
+
+```jsx
+// Tagga questa risposta per la purga on-demand
+const res = await fetch('https://api.example.com/posts', {
+  next: { tags: ['posts'] },
+});
+```
+
+Tagga una risposta cached così puoi purgarla da un Route Handler o da una Server Action:
+
+```js
+// src/app/api/revalidate/route.js
+import { revalidateTag } from 'next/cache';
+
+export async function POST(request) {
+  const { tag, secret } = await request.json();
+  if (secret !== process.env.REVALIDATE_SECRET) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  revalidateTag(tag);           // purga tutte le risposte taggate con `tag`
+  return Response.json({ revalidated: true });
+}
+```
+
+Il webhook del tuo CMS chiama questo endpoint quando il contenuto cambia — nessun rebuild necessario.
+
+## Deduplicazione delle richieste
+
+Se lo stesso URL di `fetch` viene chiamato più volte durante un singolo render (ad esempio da una pagina e da un layout), Next.js restituisce automaticamente la stessa risposta memoizzata. La rete viene acceduta una sola volta per richiesta:
+
+```jsx
+// layout.js e page.js chiamano entrambi getUser — una sola richiesta di rete in totale
+async function getUser(id) {
+  const res = await fetch(`https://api.example.com/users/${id}`);
+  return res.json();
+}
+```
+
+Per sorgenti dati che non usano fetch (query al database, letture di file, SDK di terze parti), usa `React.cache` per ottenere la stessa deduplicazione per richiesta:
+
+```js
+import { cache } from 'react';
+import { db } from '@/lib/db';
+
+export const getUser = cache(async (id) => {
+  return db.users.findById(id);
+});
+```
+
+`React.cache` memoizza il risultato per la durata di un singolo render sul server. Ogni nuova richiesta ottiene uno scope fresco — nessuna condivisione di dati tra richieste.
+
+## unstable_cache — caching persistente senza fetch
+
+Quando hai bisogno di mettere in cache il risultato di una query al database o di qualsiasi funzione async tra le richieste (non solo all'interno di un render), usa `unstable_cache` da `next/cache`:
+
+```js
+import { unstable_cache } from 'next/cache';
+import { db } from '@/lib/db';
+
+export const getCachedPosts = unstable_cache(
+  async () => db.posts.findAll(),
+  ['posts-list'],              // cache key
+  {
+    tags: ['posts'],           // purga con revalidateTag('posts')
+    revalidate: 3600,          // oppure basato sul tempo: ogni ora
+  }
+);
+```
+
+`unstable_cache` avvolge qualsiasi funzione async e memorizza il suo risultato nella cache lato server di Next.js. Il nome è "unstable" perché l'API potrebbe cambiare — in Next.js 16 il sostituto stabile è la direttiva `'use cache'` (vedi il callout qui sotto).
+
+<Callout type="tip">
+**Il futuro: la direttiva `'use cache'`** — Next.js 16 introduce una nuova direttiva `'use cache'` come sostituto più ergonomico di `unstable_cache`. Aggiungila in cima a qualsiasi funzione o componente async per mettere in cache il suo valore di ritorno, e usa `cacheLife('days')` / `cacheLife('hours')` per il TTL. Richiede di abilitare `cacheComponents: true` in `next.config.js`. Il pattern `unstable_cache` rimane completamente supportato nei progetti senza quella flag.
+</Callout>
+
+## Fetching parallelo vs sequenziale
+
+L'errore di performance più comune nel data fetching è creare un waterfall accidentale.
+
+### Sequenziale (waterfall) — quasi sempre sbagliato
+
+```jsx
+// ❌ albums aspetta che artist finisca
+export default async function Page({ params }) {
+  const { id } = await params;
+  const artist = await getArtist(id);     // parte
+  const albums  = await getAlbums(id);    // parte solo dopo che artist si risolve
+  return <div>...</div>;
+}
+```
+
+Tempo totale = latenza di `getArtist` + latenza di `getAlbums`.
+
+### Parallelo — quasi sempre corretto
+
+```jsx
+// ✅ entrambe le richieste partono contemporaneamente
+export default async function Page({ params }) {
+  const { id } = await params;
+
+  const artistPromise = getArtist(id);    // parte immediatamente
+  const albumsPromise  = getAlbums(id);   // parte immediatamente
+
+  const [artist, albums] = await Promise.all([artistPromise, albumsPromise]);
+  return <div>...</div>;
+}
+```
+
+Tempo totale = `max(latenza di getArtist, latenza di getAlbums)` — le due richieste si sovrappongono.
+
+Usa `Promise.allSettled` invece di `Promise.all` quando vuoi gestire i fallimenti individualmente (una richiesta che fallisce non deve mandare in crash l'intera pagina):
+
+```jsx
+const results = await Promise.allSettled([postPromise, commentsPromise]);
+const post     = results[0].status === 'fulfilled' ? results[0].value : null;
+const comments = results[1].status === 'fulfilled' ? results[1].value : [];
+```
+
+### Quando il sequenziale è corretto
+
+Il fetching sequenziale è corretto quando la seconda richiesta *dipende dal risultato della prima*:
+
+```jsx
+const artist  = await getArtist(username);   // serve artist.id prima
+const albums  = await getAlbums(artist.id);  // artist.id è usato qui
+```
+
+Non puoi parallelizzare queste — `albums` ha davvero bisogno di `artist.id` prima di poter partire.
+
+---
+
+## Esempio reale: playground/posts
+
+Questo corso ha una route live su `/playground/posts` che dimostra questi pattern. La pagina di elenco usa `next: { revalidate: 3600 }` per mettere in cache i 100 post per un'ora. La pagina di dettaglio su `/playground/posts/[id]` recupera il post e i suoi commenti in parallelo con `Promise.all`:
+
+```jsx
+// src/app/playground/posts/[id]/page.js
+export default async function PostPage({ params }) {
+  const { id } = await params;
+
+  // Entrambi i fetch partono simultaneamente
+  const [post, comments] = await Promise.all([
+    getPost(id),
+    getComments(id),
+  ]);
+
+  if (!post) notFound();
+  return (
+    <article>
+      <h1>{post.title}</h1>
+      <CommentList comments={comments} />
+    </article>
+  );
+}
+```
+
+---
+
+## Playground — tempi waterfall vs parallelo
+
+Il sandbox fa fetch da due endpoint simulati lenti. La versione `Sequential` li attende uno dopo l'altro; la versione `Parallel` usa `Promise.all`. Osserva il tempo trascorso su ogni tab — il parallelo completa in circa la metà del tempo.
+
+<Playground
+  template="nextjs"
+  files={{
+    'app/page.js': `import { Sequential } from './Sequential';
+import { Parallel } from './Parallel';
+
+export default function Page() {
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '640px' }}>
+      <h1 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '1.5rem' }}>
+        Waterfall vs Parallel
+      </h1>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+        <Sequential />
+        <Parallel />
+      </div>
+    </div>
+  );
+}`,
+    'app/Sequential.js': `async function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fetchA() {
+  await delay(600);
+  return { name: 'Post', views: 1_420 };
+}
+
+async function fetchB() {
+  await delay(400);
+  return { count: 17 };
+}
+
+export async function Sequential() {
+  const start = Date.now();
+
+  const a = await fetchA();   // waits 600ms
+  const b = await fetchB();   // only starts after A — waits 400ms more
+
+  const elapsed = Date.now() - start;
+
+  return (
+    <div style={{ border: '1px solid #fca5a5', borderRadius: '8px', padding: '1rem' }}>
+      <p style={{ fontWeight: 700, color: '#991b1b', marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+        ❌ Sequential (waterfall)
+      </p>
+      <pre style={{ fontSize: '0.75rem', lineHeight: 1.6, color: '#374151', margin: 0 }}>
+{JSON.stringify({ post: a, comments: b }, null, 2)}
+      </pre>
+      <p style={{ marginTop: '0.75rem', fontSize: '0.875rem', color: '#991b1b', fontWeight: 600 }}>
+        ⏱ {elapsed}ms
+      </p>
+    </div>
+  );
+}`,
+    'app/Parallel.js': `async function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fetchA() {
+  await delay(600);
+  return { name: 'Post', views: 1_420 };
+}
+
+async function fetchB() {
+  await delay(400);
+  return { count: 17 };
+}
+
+export async function Parallel() {
+  const start = Date.now();
+
+  // Both start immediately — total time ≈ max(600, 400) = 600ms
+  const [a, b] = await Promise.all([fetchA(), fetchB()]);
+
+  const elapsed = Date.now() - start;
+
+  return (
+    <div style={{ border: '1px solid #86efac', borderRadius: '8px', padding: '1rem' }}>
+      <p style={{ fontWeight: 700, color: '#166534', marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+        ✅ Parallel (Promise.all)
+      </p>
+      <pre style={{ fontSize: '0.75rem', lineHeight: 1.6, color: '#374151', margin: 0 }}>
+{JSON.stringify({ post: a, comments: b }, null, 2)}
+      </pre>
+      <p style={{ marginTop: '0.75rem', fontSize: '0.875rem', color: '#166534', fontWeight: 600 }}>
+        ⏱ {elapsed}ms
+      </p>
+    </div>
+  );
+}`,
+  }}
+  activeFile="app/Sequential.js"
+  height={460}
+/>
+
+---
+
+## Migrazione: fetch con useEffect → async Server Component
+
+<Callout type="tip">
+**Prima — pattern della Lezione 6 (Client Component):**
+
+```jsx
+'use client';
+import { useState, useEffect } from 'react';
+
+export function PostList() {
+  const [posts, setPosts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let ignore = false;
+    fetch('https://jsonplaceholder.typicode.com/posts')
+      .then(r => r.json())
+      .then(data => { if (!ignore) setPosts(data); })
+      .catch(err => { if (!ignore) setError(err.message); })
+      .finally(() => { if (!ignore) setLoading(false); });
+    return () => { ignore = true; };
+  }, []);
+
+  if (loading) return <p>Loading…</p>;
+  if (error)   return <p>Error: {error}</p>;
+  return <ul>{posts.map(p => <li key={p.id}>{p.title}</li>)}</ul>;
+}
+```
+
+**Dopo — pattern dell'App Router (Server Component):**
+
+```jsx
+// Niente 'use client'. Niente useState. Niente useEffect. Niente stato di loading/error.
+export default async function PostList() {
+  const res = await fetch('https://jsonplaceholder.typicode.com/posts', {
+    next: { revalidate: 3600 },
+  });
+  if (!res.ok) throw new Error('Failed to load posts');
+  const posts = await res.json();
+  return <ul>{posts.map(p => <li key={p.id}>{p.title}</li>)}</ul>;
+}
+```
+
+**Cosa ci guadagni:**
+- Zero JavaScript inviato per la lista — è HTML puro.
+- L'URL dell'API non viene mai esposto al browser.
+- Nessuno spinner di loading — la pagina arriva completamente renderizzata.
+- Caching / ISR / revalidazione on-demand con un'unica opzione.
+
+**Quando tenere useEffect:**
+- Hai bisogno di dati in tempo reale che cambiano mentre l'utente è sulla pagina (WebSocket, polling).
+- I dati sono specifici dell'utente e possono essere determinati solo sul client (ad esempio geolocalizzazione, clipboard).
+- Ti trovi in un Client Component per altri motivi (state, event handler) e il fetch è secondario.
+</Callout>
+
+---
+
+**Riferimenti:** [Fetching Data](https://nextjs.org/docs/app/building-your-application/data-fetching/fetching) · [Caching](https://nextjs.org/docs/app/building-your-application/caching) · [Incremental Static Regeneration](https://nextjs.org/docs/app/building-your-application/data-fetching/incremental-static-regeneration) · [revalidateTag](https://nextjs.org/docs/app/api-reference/functions/revalidateTag) · [unstable_cache](https://nextjs.org/docs/app/api-reference/functions/unstable_cache) · [React.cache](https://react.dev/reference/react/cache)

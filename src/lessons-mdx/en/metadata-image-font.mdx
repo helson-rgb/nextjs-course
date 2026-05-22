@@ -1,0 +1,388 @@
+# Metadata, Images & Fonts
+
+Three areas where Next.js gives you automatic optimisations that would otherwise take significant boilerplate: page metadata (titles, Open Graph, Twitter cards), responsive images (resizing, lazy loading, layout-shift prevention), and web fonts (zero CLS, self-hosted privacy). All three are configured in the same App Router conventions.
+
+## The `metadata` export — static metadata
+
+Export a `metadata` object from any `layout.js` or `page.js` to set that route's `<head>` tags:
+
+```js
+// src/app/about/page.js
+export const metadata = {
+  title: 'About — Next Academy',
+  description: 'Learn the stack behind modern web apps.',
+}
+
+export default function AboutPage() { ... }
+```
+
+Next.js merges metadata from layouts down to pages. A root layout sets the site-wide default; each page can override individual fields.
+
+### Open Graph and Twitter cards
+
+```js
+export const metadata = {
+  title: 'Server Actions — Next Academy',
+  description: 'Mutate data without API routes.',
+  openGraph: {
+    title: 'Server Actions',
+    description: 'Mutate data without API routes.',
+    type: 'article',
+    images: [{ url: '/og/server-actions.png', width: 1200, height: 630 }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Server Actions',
+    description: 'Mutate data without API routes.',
+  },
+}
+```
+
+`openGraph.images` accepts an array so you can supply multiple sizes. The first image is used by most crawlers.
+
+## `generateMetadata` — dynamic metadata
+
+When the metadata depends on route parameters or external data, export an async `generateMetadata` function instead of the object. It receives the same `{ params, searchParams }` as the page component:
+
+```js
+// src/app/lessons/[slug]/page.js
+export async function generateMetadata({ params }) {
+  const { slug } = await params          // always await params in Next.js 16
+  const lesson = getLessonBySlug(slug)
+  if (!lesson) return {}
+
+  return {
+    title: `${lesson.title} — Next Academy`,
+    description: lesson.summary,
+    openGraph: {
+      title: lesson.title,
+      description: lesson.summary,
+      type: 'article',
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: lesson.title,
+      description: lesson.summary,
+    },
+  }
+}
+```
+
+`generateMetadata` is **Server Component only** — it runs before the page renders and injects the tags into the initial HTML response.
+
+### `fetch` deduplication in `generateMetadata`
+
+If both `generateMetadata` and the page component call the same `fetch` URL, Next.js makes only one network request. The result is memoised for the duration of that render.
+
+## `opengraph-image.js` — dynamic OG images
+
+The file convention `opengraph-image.js` (or `.tsx`) placed next to a `page.js` generates a dynamic image for that route's Open Graph card. Next.js automatically wires the `<meta property="og:image">` tag to point at it.
+
+```js
+// src/app/lessons/[slug]/opengraph-image.js
+import { ImageResponse } from 'next/og'
+import { getLessonBySlug } from '@/lib/lessons'
+
+export const size = { width: 1200, height: 630 }
+export const contentType = 'image/png'
+
+export default async function Image({ params }) {
+  const { slug } = await params
+  const lesson = getLessonBySlug(slug)
+  const title = lesson?.title ?? 'Next Academy'
+
+  return new ImageResponse(
+    (
+      <div style={{
+        width: '100%', height: '100%',
+        display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
+        background: '#0b1326', padding: '60px 72px',
+      }}>
+        <div style={{ fontSize: '22px', color: '#c0c1ff', marginBottom: '20px' }}>
+          {lesson?.chapter}
+        </div>
+        <div style={{ fontSize: '72px', fontWeight: '800', color: '#dae2fd', lineHeight: 1.1 }}>
+          {title}
+        </div>
+      </div>
+    ),
+    { ...size }
+  )
+}
+```
+
+`ImageResponse` renders JSX to a PNG using Satori and Resvg. Only a **flexbox subset of CSS** is supported — no grid, no `display: block` on children. Keep the layout simple.
+
+<Callout type="warn">
+**`ImageResponse` supports flex only.** Set `display: 'flex'` on every container element. `display: 'block'` and CSS grid are not supported. If an element does not render as expected, add `display: 'flex'` to it.
+</Callout>
+
+---
+
+## `next/image` — optimised images
+
+The `<Image>` component from `next/image` wraps the HTML `<img>` tag and adds:
+
+- **Automatic format conversion** — serves WebP or AVIF when the browser supports it
+- **Responsive `srcSet`** — generated automatically from a set of widths
+- **Lazy loading** — images off-screen don't load until they scroll into view
+- **Layout-shift prevention** — reserves space for the image before it loads, keeping [CLS](https://web.dev/cls/) near zero
+
+### Basic usage — explicit dimensions
+
+Always provide `width` and `height` when the intrinsic size of the image is known. These values set the aspect ratio used for the reserved space, not the rendered size:
+
+```jsx
+import Image from 'next/image'
+
+export function Avatar() {
+  return (
+    <Image
+      src="/avatar.jpg"
+      alt="User avatar"
+      width={64}
+      height={64}
+      className="rounded-full"
+    />
+  )
+}
+```
+
+### `fill` — image fills its container
+
+When you don't know the intrinsic size (e.g. a hero image that should cover its container), use the `fill` prop. The parent **must** have `position: relative` (or `absolute` / `fixed`) and an explicit height:
+
+```jsx
+<div className="relative h-64 w-full">
+  <Image
+    src="/hero.jpg"
+    alt="Course hero"
+    fill
+    className="object-cover"
+  />
+</div>
+```
+
+`fill` makes the image `position: absolute; inset: 0`. Add `object-cover` (CSS `object-fit: cover`) so it crops to fill the box without distortion.
+
+### `priority` — above-the-fold images
+
+By default `<Image>` is lazy-loaded. For images that are visible on page load (hero, logo, above-the-fold banner), add `priority` to tell the browser to fetch them eagerly:
+
+```jsx
+<Image src="/hero.jpg" alt="Hero" width={1200} height={600} priority />
+```
+
+Only use `priority` on images that are immediately visible. Marking too many images as priority defeats the lazy-loading benefit.
+
+### `<img>` vs `<Image>` — what changes in the HTML
+
+| | `<img>` | `<Image>` |
+|---|---|---|
+| `srcset` | none (unless you write it) | generated automatically |
+| `loading` | `eager` (default) | `lazy` (default) |
+| Placeholder space | none — causes CLS | reserved via `width`/`height` or `fill` |
+| Format | original only | WebP / AVIF when supported |
+| Blur placeholder | not built-in | `placeholder="blur"` + `blurDataURL` |
+
+<Callout type="tip">
+**Never use `<img>` for content images in a Next.js app.** The `<Image>` component is a strict upgrade — it generates the same HTML element, with better defaults and zero extra JavaScript on the client.
+</Callout>
+
+---
+
+## `next/font` — zero CLS font loading
+
+Fonts loaded from Google Fonts at runtime cause a flash of unstyled text (FOUT) and CLS because the browser must fetch the CSS, then the font files, then re-render the text. `next/font/google` moves this to the server:
+
+1. At build time, Next.js fetches the font files from Google Fonts
+2. The files are self-hosted on your domain — no runtime request to Google
+3. The font is injected as a CSS variable on `<html>` — no render-blocking link tag
+
+```js
+// src/app/layout.js
+import { Plus_Jakarta_Sans, Inter } from 'next/font/google'
+
+const display = Plus_Jakarta_Sans({
+  subsets: ['latin'],
+  weight: ['700', '800'],
+  variable: '--font-display',  // CSS custom property name
+  display: 'swap',             // font-display: swap
+})
+
+const body = Inter({
+  subsets: ['latin'],
+  weight: ['400', '500', '600'],
+  variable: '--font-body',
+  display: 'swap',
+})
+
+export default function RootLayout({ children }) {
+  return (
+    <html className={`${display.variable} ${body.variable}`}>
+      <body>{children}</body>
+    </html>
+  )
+}
+```
+
+The variables `--font-display` and `--font-body` are then referenced by Tailwind (or any CSS) anywhere in the tree:
+
+```css
+/* globals.css */
+.font-display { font-family: var(--font-display); }
+.font-body    { font-family: var(--font-body); }
+```
+
+### Why this eliminates CLS
+
+Because the font files are served from your own domain alongside the HTML, the browser can start downloading them immediately — no cross-origin round-trip. `display: 'swap'` means text renders in the fallback font first, then swaps once the web font is ready. The CLS from the swap is minimal because `next/font` injects a `size-adjust` override on the fallback font so the layout barely shifts.
+
+### Self-hosted with `next/font/local`
+
+For fonts you own (purchased typefaces, brand fonts, variable fonts):
+
+```js
+import localFont from 'next/font/local'
+
+const brand = localFont({
+  src: [
+    { path: '../../public/fonts/Brand-Regular.woff2', weight: '400' },
+    { path: '../../public/fonts/Brand-Bold.woff2',    weight: '700' },
+  ],
+  variable: '--font-brand',
+  display: 'swap',
+})
+```
+
+`next/font/local` gives you the same build-time optimisation and zero CLS as the Google Fonts variant — with no external network dependency at all.
+
+---
+
+## This course app
+
+**Fonts** — `src/app/layout.js` loads `Plus_Jakarta_Sans` as `--font-display` and `Inter` as `--font-body` via `next/font/google`. Both are self-hosted at build time. The Tailwind classes `font-display` and `font-body` reference these variables.
+
+**Metadata** — `src/app/lessons/[slug]/page.js` exports `generateMetadata` returning `title`, `description`, `openGraph`, and `twitter` fields from the lesson registry. The `opengraph-image.js` sitting next to `page.js` generates a 1200×630 dark-theme card with the lesson title using `ImageResponse`.
+
+```
+src/app/lessons/[slug]/
+├── page.js               ← generateMetadata + page component
+└── opengraph-image.js    ← ImageResponse — auto-linked as og:image
+```
+
+The OG image is pre-rendered at build time for every lesson (because `generateStaticParams` provides all slugs), so there is no server computation at request time.
+
+---
+
+## Playground — `<img>` vs `<Image>` markup comparison
+
+The sandbox below renders the same cat photo with a plain `<img>` and with a simulated `<Image>`. Inspect the generated markup in each panel to see the difference in `srcset`, `loading`, and the layout-shift placeholder.
+
+<Playground
+  template="react"
+  files={{
+    'App.js': `// This playground simulates the output HTML of next/image vs a plain img tag.
+// In a real Next.js app, <Image> from next/image would generate all of this automatically.
+
+export default function App() {
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '1.5rem', maxWidth: '680px' }}>
+      <h1 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '1.5rem' }}>
+        img vs Image — generated markup
+      </h1>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+        <Panel title="Plain <img>" color="#fef2f2" border="#fca5a5">
+          <Code>{PLAIN_IMG}</Code>
+          <Note color="#dc2626">
+            ✗ No srcset — one size for all screens{'\n'}
+            ✗ No loading="lazy" — fetched immediately{'\n'}
+            ✗ No width/height — causes CLS
+          </Note>
+        </Panel>
+
+        <Panel title="next/image <Image>" color="#f0fdf4" border="#86efac">
+          <Code>{NEXT_IMAGE}</Code>
+          <Note color="#16a34a">
+            ✓ srcset with 3 widths auto-generated{'\n'}
+            ✓ loading="lazy" by default{'\n'}
+            ✓ width+height reserve space → CLS = 0{'\n'}
+            ✓ Serves WebP when browser supports it
+          </Note>
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
+const PLAIN_IMG = \`<img
+  src="/photo.jpg"
+  alt="A photo"
+/>\`;
+
+const NEXT_IMAGE = \`<img
+  alt="A photo"
+  loading="lazy"
+  width="800"
+  height="600"
+  decoding="async"
+  style="color:transparent"
+  srcset="
+    /_next/image?url=%2Fphoto.jpg&w=640&q=75  640w,
+    /_next/image?url=%2Fphoto.jpg&w=828&q=75  828w,
+    /_next/image?url=%2Fphoto.jpg&w=1200&q=75 1200w
+  "
+  src="/_next/image?url=%2Fphoto.jpg&w=1200&q=75"
+/>\`;
+
+function Panel({ title, color, border, children }) {
+  return (
+    <div style={{ background: color, border: \`1px solid \${border}\`, borderRadius: '8px', padding: '1rem' }}>
+      <p style={{ fontWeight: 700, fontSize: '0.8rem', marginBottom: '0.75rem', color: '#1e293b' }}>{title}</p>
+      {children}
+    </div>
+  );
+}
+
+function Code({ children }) {
+  return (
+    <pre style={{
+      background: 'rgba(0,0,0,0.06)', borderRadius: '4px',
+      padding: '0.625rem', fontSize: '0.65rem', lineHeight: 1.6,
+      overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+      marginBottom: '0.75rem',
+    }}>
+      {children}
+    </pre>
+  );
+}
+
+function Note({ color, children }) {
+  return (
+    <p style={{ fontSize: '0.7rem', color, lineHeight: 1.8, margin: 0, whiteSpace: 'pre-line' }}>
+      {children}
+    </p>
+  );
+}`,
+  }}
+  activeFile="App.js"
+  height={520}
+/>
+
+---
+
+## Key takeaways
+
+<Callout type="tip">
+**Static `metadata` for fixed pages, `generateMetadata` for dynamic ones.** Both run server-side and inject tags into the initial HTML. You cannot export both from the same segment.
+
+**`opengraph-image.js` next to a `page.js` is auto-wired as `og:image`.** Use `ImageResponse` to generate a PNG from JSX. Only flexbox CSS is supported — keep the layout flat.
+
+**`<Image>` is a drop-in replacement for `<img>` with zero client JS.** It adds a responsive `srcset`, lazy loading, and layout-shift prevention. Use `fill` for hero images; use explicit `width`/`height` for everything else. Add `priority` only to above-the-fold images.
+
+**`next/font` self-hosts fonts at build time.** No runtime request to Google, no FOUT, near-zero CLS. Use `display: 'swap'` and a `variable` to expose the font as a CSS custom property.
+</Callout>
+
+---
+
+**References:** [Metadata](https://nextjs.org/docs/app/api-reference/functions/generate-metadata) · [opengraph-image](https://nextjs.org/docs/app/api-reference/file-conventions/metadata/opengraph-image) · [ImageResponse](https://nextjs.org/docs/app/api-reference/functions/image-response) · [next/image](https://nextjs.org/docs/app/api-reference/components/image) · [next/font](https://nextjs.org/docs/app/api-reference/components/font)

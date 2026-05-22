@@ -1,0 +1,343 @@
+# Route Handlers
+
+Route Handlers are `route.js` files that expose HTTP endpoints from your Next.js app. They use the standard Web `Request` and `Response` APIs — no Express, no `req`/`res`, no framework wrappers. Export a function named after the HTTP method and Next.js routes requests to it.
+
+## The `route.js` file convention
+
+Place a `route.js` file inside `app/` at the path you want to serve. The file must **not** sit alongside a `page.js` at the same segment — a segment can be a page or an API endpoint, not both.
+
+```
+app/
+├── api/
+│   └── notes/
+│       ├── route.js        ← /api/notes  (GET, POST)
+│       └── [id]/
+│           └── route.js    ← /api/notes/42  (GET, DELETE)
+└── page.js                 ← the home page (unrelated segment)
+```
+
+Each HTTP method you want to support is a named export:
+
+```js
+// src/app/api/notes/route.js
+export async function GET(request) { ... }
+export async function POST(request) { ... }
+```
+
+Supported method names: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, `OPTIONS`.
+
+## Request and Response — Web standards
+
+Route Handlers receive a standard [`Request`](https://developer.mozilla.org/en-US/docs/Web/API/Request) and must return a [`Response`](https://developer.mozilla.org/en-US/docs/Web/API/Response). Use `Response.json()` for the common case:
+
+```js
+export async function GET() {
+  const data = { message: 'Hello' };
+  return Response.json(data);                    // 200 OK, Content-Type: application/json
+}
+
+export async function POST(request) {
+  const body = await request.json();             // parse JSON body
+  return Response.json(body, { status: 201 });   // 201 Created
+}
+```
+
+For non-JSON responses, use the `Response` constructor directly:
+
+```js
+return new Response('plain text', {
+  status: 200,
+  headers: { 'Content-Type': 'text/plain' },
+});
+```
+
+204 No Content (common for DELETE) sends a body-less response:
+
+```js
+return new Response(null, { status: 204 });
+```
+
+## Reading the request
+
+### JSON body
+
+```js
+export async function POST(request) {
+  const { title, body } = await request.json();
+  // ...
+}
+```
+
+### Query parameters
+
+```js
+export async function GET(request) {
+  const { searchParams } = new URL(request.url);
+  const limit = Number(searchParams.get('limit') ?? 10);
+  // ...
+}
+```
+
+### Headers
+
+```js
+export async function POST(request) {
+  const token = request.headers.get('Authorization');
+  if (!token) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  // ...
+}
+```
+
+## Dynamic route segments
+
+Dynamic segments work the same as in page routes. The second argument to the handler is a context object; `params` is a **promise** in Next.js 16 and must be awaited:
+
+```js
+// src/app/api/notes/[id]/route.js
+export async function DELETE(request, { params }) {
+  const { id } = await params;   // ← always await params
+  await deleteNote(Number(id));
+  return new Response(null, { status: 204 });
+}
+```
+
+## Setting headers and cookies with `NextResponse`
+
+The standard `Response` handles most cases. When you need to set cookies or redirect, import `NextResponse` from `next/server`:
+
+```js
+import { NextResponse } from 'next/server';
+
+export async function GET(request) {
+  const data = await fetchData();
+  const response = NextResponse.json(data);
+  response.cookies.set('last-visit', new Date().toISOString(), {
+    httpOnly: true,
+    maxAge: 60 * 60 * 24,
+  });
+  return response;
+}
+```
+
+`NextResponse.redirect()` and `NextResponse.rewrite()` are the other common uses — the same helpers you may recognise from middleware.
+
+## `NextRequest` — extended request
+
+`NextRequest` (from `next/server`) extends the standard `Request` with a few extras:
+
+```js
+import { NextRequest } from 'next/server';
+
+export async function GET(request) {
+  // request.nextUrl is a pre-parsed URL — no `new URL(request.url)` needed
+  const limit = request.nextUrl.searchParams.get('limit');
+
+  // request.cookies reads and writes cookies
+  const token = request.cookies.get('auth-token')?.value;
+  // ...
+}
+```
+
+For simple handlers that only read `request.json()`, `request.headers`, or `request.url`, use the standard `Request` — no import needed. Reach for `NextRequest` when you need `.nextUrl`, `.cookies`, or `.geo`.
+
+## Route Handlers vs Server Actions
+
+<Callout type="warn">
+**Use the right tool for the job.**
+
+| Scenario | Use |
+|---|---|
+| Public REST API consumed by mobile apps, third-party services, or `curl` | Route Handler |
+| Webhook endpoint receiving POST from Stripe, GitHub, etc. | Route Handler |
+| Form submission that mutates data inside your own Next.js app | Server Action |
+| Fetching data for a page | Async Server Component — no handler needed |
+
+Server Actions run in the context of a full Next.js render — they can call `revalidatePath`, `redirect`, and access server-only modules directly. Route Handlers are stateless HTTP endpoints with no knowledge of the current render. When the client is your own Next.js form, Server Actions are simpler. When the client is anything external, Route Handlers are the right choice.
+</Callout>
+
+---
+
+## The API — Notes
+
+The course app exposes the same `notes-store.js` used by Server Actions as a REST API at `/api/notes`. An external client (a mobile app, a cURL script, another service) can read and write notes through this API while the `/playground/notes` page continues to use Server Actions internally.
+
+```
+GET    /api/notes          → 200  [{ id, body }, ...]
+GET    /api/notes?limit=2  → 200  first 2 notes
+POST   /api/notes          → 201  { id, body }
+GET    /api/notes/1        → 200  { id, body }
+DELETE /api/notes/1        → 204  (no body)
+```
+
+```js
+// src/app/api/notes/route.js
+import { getNotes, addNote } from '@/lib/notes-store';
+
+export async function GET(request) {
+  const { searchParams } = new URL(request.url);
+  const limit = searchParams.has('limit') ? Number(searchParams.get('limit')) : undefined;
+  const notes = limit ? getNotes().slice(0, limit) : getNotes();
+  return Response.json(notes);
+}
+
+export async function POST(request) {
+  const body = await request.json();
+  const text = body?.body?.toString().trim();
+  if (!text) return Response.json({ error: '"body" field is required' }, { status: 400 });
+  const note = addNote(text);
+  return Response.json(note, { status: 201 });
+}
+```
+
+```js
+// src/app/api/notes/[id]/route.js
+import { getNotes, removeNote } from '@/lib/notes-store';
+
+export async function DELETE(request, { params }) {
+  const { id } = await params;
+  const exists = getNotes().some((n) => n.id === Number(id));
+  if (!exists) return Response.json({ error: 'Not found' }, { status: 404 });
+  removeNote(Number(id));
+  return new Response(null, { status: 204 });
+}
+```
+
+<Callout type="info">
+**Try it with `curl`.** With the dev server running on port 3000:
+
+```bash
+# List all notes
+curl http://localhost:3000/api/notes
+
+# Add a note
+curl -X POST http://localhost:3000/api/notes \
+  -H "Content-Type: application/json" \
+  -d '{"body":"Added from curl"}'
+
+# Delete note 1
+curl -X DELETE http://localhost:3000/api/notes/1
+
+# Check it is gone
+curl http://localhost:3000/api/notes
+```
+
+Then visit `/playground/notes` — the deletion you made via `curl` is reflected in the Server-Action-powered UI. They share the same in-memory store.
+</Callout>
+
+---
+
+## Playground — client-side fetch vs server-side fetch
+
+In [Data Fetching Patterns](/lessons/data-fetching-patterns) you fetched from an async Server Component — the request ran on the server, the browser received finished HTML. The component below does the same fetch from the **browser** using `useEffect`. Both approaches talk to the same API; the difference is _where_ the request runs and what the browser receives.
+
+```
+Server Component approach (Lesson 11):
+  Server fetches → sends finished HTML → browser renders, zero JS shipped
+
+Client Component approach (this playground):
+  Browser renders skeleton → JS loads → fetch runs → state updates → re-render
+```
+
+Toggle between the two tabs and compare: the server approach shows no loading state in the network panel; the client approach shows a blank/skeleton frame followed by the data update.
+
+<Playground
+  template="react"
+  files={{
+    'App.js': `import { useState, useEffect } from 'react';
+
+// This mirrors what a Server Component does — but running in the browser.
+// The key difference: the browser must download JS, run it, fetch the data,
+// then update state before anything useful is shown.
+
+export default function App() {
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '560px' }}>
+      <h1 style={{ fontSize: '1.125rem', fontWeight: 700, marginBottom: '0.25rem' }}>
+        Client-side fetch (useEffect)
+      </h1>
+      <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '1.5rem' }}>
+        Open DevTools → Network → watch the waterfall. The fetch only starts
+        after the JS bundle loads and the component mounts.
+      </p>
+      <PostList />
+    </div>
+  );
+}
+
+function PostList() {
+  const [posts, setPosts]   = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError]   = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('https://jsonplaceholder.typicode.com/posts?_limit=5')
+      .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
+      .then(data  => { if (!cancelled) setPosts(data); })
+      .catch(err  => { if (!cancelled) setError(err.message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (loading) return <Skeleton />;
+  if (error)   return <p style={{ color: '#dc2626' }}>Error: {error}</p>;
+
+  return (
+    <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+      {posts.map(post => (
+        <li key={post.id} style={{
+          padding: '0.625rem 0.875rem',
+          border: '1px solid #e2e8f0',
+          borderRadius: '8px',
+          fontSize: '0.875rem',
+        }}>
+          <span style={{ fontWeight: 600, marginRight: '0.5rem', color: '#6366f1' }}>
+            #{post.id}
+          </span>
+          {post.title}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function Skeleton() {
+  return (
+    <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+      {Array.from({ length: 5 }).map((_, i) => (
+        <li key={i} style={{
+          height: '40px',
+          borderRadius: '8px',
+          background: 'linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%)',
+          backgroundSize: '200% 100%',
+          animation: 'shimmer 1.4s infinite',
+        }} />
+      ))}
+      <style>{\`@keyframes shimmer { 0% { background-position: 200% 0 } 100% { background-position: -200% 0 } }\`}</style>
+    </ul>
+  );
+}`,
+  }}
+  activeFile="App.js"
+  height={480}
+/>
+
+---
+
+## Key takeaways
+
+<Callout type="tip">
+**Route Handlers are `route.js` files with named HTTP method exports.** `export async function GET` handles GET requests; `export async function POST` handles POST. No framework adapter — standard Web `Request` and `Response`.
+
+**`Response.json(data, { status })` is the workhorse.** For `204 No Content`, use `new Response(null, { status: 204 })`. For redirects or cookie-setting, reach for `NextResponse`.
+
+**Dynamic segments use `await params`.** The second argument is `{ params }` — a promise in Next.js 16. Always `await` it before destructuring.
+
+**Route Handlers and Server Actions share the same process.** They can import the same modules, read the same environment variables, and talk to the same database. The difference is caller: external HTTP clients use Route Handlers; your own Next.js forms use Server Actions.
+
+**Do not add a Route Handler just to read data for a page.** Async Server Components fetch directly — no endpoint needed. Route Handlers make sense when the consumer is outside your Next.js app.
+</Callout>
+
+---
+
+**References:** [Route Handlers](https://nextjs.org/docs/app/building-your-application/routing/route-handlers) · [NextRequest](https://nextjs.org/docs/app/api-reference/functions/next-request) · [NextResponse](https://nextjs.org/docs/app/api-reference/functions/next-response)

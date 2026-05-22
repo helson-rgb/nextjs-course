@@ -1,0 +1,303 @@
+# Stati di Loading ed Errore
+
+Due file speciali — `loading.js` e `error.js` — permettono a Next.js di gestire i casi limite asincroni più comuni a livello di route, senza nessun boilerplate nei tuoi componenti di pagina. Abbinali a boundary `<Suspense>` espliciti per un controllo granulare su cosa viene inviato in streaming e quando.
+
+## `loading.js` — skeleton istantanei
+
+Inserisci un file `loading.js` in qualsiasi cartella di route e Next.js avvolge automaticamente il `page.js` di quel segmento in un boundary React `<Suspense>`. Il componente di loading viene renderizzato immediatamente alla navigazione; il componente di pagina fa streaming in background.
+
+```
+app/
+└── playground/
+    └── posts/
+        ├── loading.js   ← mostrato mentre page.js è in sospeso
+        └── page.js      ← avvolto automaticamente in <Suspense>
+```
+
+```jsx
+// src/app/playground/posts/loading.js
+export default function Loading() {
+  return (
+    <ul>
+      {Array.from({ length: 5 }).map((_, i) => (
+        <li key={i} className="h-10 animate-pulse rounded-md bg-border" />
+      ))}
+    </ul>
+  );
+}
+```
+
+`loading.js` è un **Server Component** per impostazione predefinita. Può importare client component per skeleton interattivi (spinner, barre di avanzamento), ma mantienilo leggero — deve renderizzarsi in modo sincrono.
+
+### Cosa significa "istantaneo"
+
+Quando il browser esegue il prefetch di una route, esegue il prefetch anche della loading UI. Lo skeleton appare prima ancora che il server inizi a fare il fetch dei dati per la pagina. L'utente vede una risposta immediatamente; i dati arrivano e vengono sostituiti non appena sono pronti.
+
+### `loading.js` copre solo un segmento
+
+Un `loading.js` in `posts/` avvolge `posts/page.js` ma **non** influisce su `posts/[id]/page.js`. Ogni segmento ha il proprio boundary di loading. È intenzionale — ti permette di mostrare uno skeleton per la lista mentre la pagina di dettaglio fa streaming in modo indipendente.
+
+## `error.js` — boundary di errore a livello di route
+
+`error.js` avvolge il suo segmento di route in un React error boundary. Qualsiasi `throw` non gestito all'interno di `page.js` o di un Server Component che renderizza finisce qui invece di far crashare l'intera pagina.
+
+```jsx
+// src/app/playground/posts/error.js
+'use client';  // error.js deve essere un Client Component
+
+import { useEffect } from 'react';
+
+export default function Error({ error, unstable_retry }) {
+  useEffect(() => {
+    console.error(error);
+  }, [error]);
+
+  return (
+    <div>
+      <p>Something went wrong: {error.message}</p>
+      <button onClick={unstable_retry}>Try again</button>
+    </div>
+  );
+}
+```
+
+<Callout type="warn">
+**`error.js` deve essere un Client Component.** I React error boundary funzionano solo nel browser. Aggiungi `'use client'` come prima riga — senza di essa otterrai un errore di build.
+
+La prop per il retry si chiama **`unstable_retry`** in Next.js 16 (il nome potrebbe stabilizzarsi in una release futura). Chiamarla ri-renderizza il segmento da zero — senza un ricaricamento completo della pagina.
+</Callout>
+
+### Props
+
+| Prop | Tipo | Descrizione |
+|---|---|---|
+| `error` | `Error` | L'errore lanciato. Ha `.message` e opzionalmente `.digest` (ID dell'errore lato server). |
+| `unstable_retry` | `() => void` | Ri-renderizza il segmento fallito. Da chiamare su un pulsante "Riprova". |
+
+### Cosa `error.js` non intercetta
+
+- Errori in `layout.js` nello **stesso** segmento (il boundary di errore è un figlio del layout).
+- Errori nel `app/layout.js` **root** — non c'è un parent che possa intercettarli. Usa invece un gestore di errori globale.
+
+## Boundary `<Suspense>` granulari
+
+`loading.js` avvolge l'intera pagina. Quando alcune parti di una pagina sono lente ma altre sono già pronte, usa boundary `<Suspense>` espliciti per inviarle in streaming indipendentemente:
+
+```jsx
+import { Suspense } from 'react';
+
+export default async function PostPage({ params }) {
+  const { id } = await params;
+  const post = await getPost(id);    // veloce — nessun ritardo
+
+  return (
+    <article>
+      <h1>{post.title}</h1>           {/* si renderizza immediatamente */}
+      <p>{post.body}</p>
+
+      {/* I commenti sono lenti — mostra skeleton, fai streaming quando pronti */}
+      <Suspense fallback={<CommentsSkeleton />}>
+        <CommentsSection id={id} />
+      </Suspense>
+    </article>
+  );
+}
+
+async function CommentsSection({ id }) {
+  await new Promise(r => setTimeout(r, 1500)); // fetch volutamente lento
+  const comments = await getComments(id);
+  return <ul>{comments.map(c => <li key={c.id}>{c.body}</li>)}</ul>;
+}
+```
+
+Il punto chiave: **React invia l'HTML a pezzi**. Quando `PostPage` viene renderizzata, invia subito il corpo del post e un segnaposto dove andrà `CommentsSection`. Quando `CommentsSection` termina 1,5 s dopo, React invia l'HTML risolto e un piccolo script per sostituirlo — nessun fetch lato client, nessun re-render.
+
+## Come funziona lo streaming SSR
+
+Senza streaming, il server attende ogni `await` in un componente di pagina prima di inviare qualsiasi HTML. Una query lenta da 2 s ritarda l'intera pagina:
+
+```
+Client ——request——> Server
+Client <—(2000ms)— HTML (tutto arriva in una volta sola)
+```
+
+Con lo streaming, il server invia l'HTML progressivamente. Il contenuto veloce arriva per primo; quello lento fa streaming in seguito:
+
+```
+Client ——request——> Server
+Client <——(0ms)——   <html><head>... + shell di loading
+Client <——(1500ms)— chunk dei commenti (sostituito tramite un piccolo script)
+```
+
+Il browser dipinge la shell istantaneamente. Il [Time to First Byte](https://web.dev/ttfb/) (TTFB) cala drasticamente. L'utente legge il corpo del post mentre i commenti si caricano.
+
+### Regole di posizionamento di `<Suspense>`
+
+- Posiziona `<Suspense>` **il più vicino possibile al componente lento**. Avvolgere un'intera pagina ti dà lo streaming ma non un controllo granulare.
+- Un componente si sospende solo se esegue lavoro asincrono — ovvero `await` di una promise. Un componente che riceve solo prop già risolte non si sospende.
+- Puoi annidare i boundary `<Suspense>`. Ognuno si risolve in modo indipendente.
+
+---
+
+## L'app playground: vederlo dal vivo
+
+La route `/playground/posts` in questo corso usa tutti e tre i pattern:
+
+**`loading.js`** — uno skeleton di 12 righe pulsa mentre si caricano i 100 post. Naviga su `/playground/posts` e osservalo apparire prima dei dati reali.
+
+**`error.js`** — se il fetch lancia un errore (prova a disconnetterti dalla rete), lo skeleton viene sostituito da una scheda di errore con un pulsante "Riprova" che chiama `unstable_retry`.
+
+**`<Suspense>` granulare in `/playground/posts/[id]`** — il corpo del post viene renderizzato immediatamente; i commenti sono avvolti in `<Suspense>` con un ritardo deliberato di 1,5 s così puoi vedere lo skeleton animarsi, poi i commenti reali vengono sostituiti.
+
+```jsx
+// src/app/playground/posts/[id]/page.js
+export default async function PostPage({ params }) {
+  const { id } = await params;
+  const post = await getPost(id);   // nessun ritardo — arriva con la shell della pagina
+
+  return (
+    <div>
+      <article>
+        <h1>{post.title}</h1>
+        <p>{post.body}</p>
+      </article>
+
+      <section>
+        <h2>Comments</h2>
+        <Suspense fallback={<CommentsSkeleton />}>
+          <CommentsSection id={id} />  {/* ritardo di 1.5 s al suo interno */}
+        </Suspense>
+      </section>
+    </div>
+  );
+}
+```
+
+---
+
+## Playground — componenti lenti e boundary Suspense
+
+Due componenti asincroni simulano sorgenti di dati lente. Attiva e disattiva i boundary `<Suspense>` per vedere la differenza nella latenza percepita.
+
+<Playground
+  template="nextjs"
+  files={{
+    'app/page.js': `import { Suspense } from 'react';
+import { SlowHeader } from './SlowHeader';
+import { SlowFeed }   from './SlowFeed';
+
+export default function Page() {
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '560px' }}>
+      <h1 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '1.5rem' }}>
+        Streaming Demo
+      </h1>
+
+      {/* Prova: rimuovi i wrapper Suspense e ricarica.
+          La pagina si blocca per 2 s (il componente più lento) prima di mostrare qualcosa. */}
+
+      <Suspense fallback={<Skeleton height={48} label="Loading header…" />}>
+        <SlowHeader />
+      </Suspense>
+
+      <div style={{ marginTop: '1rem' }}>
+        <Suspense fallback={<Skeleton height={180} label="Loading feed…" />}>
+          <SlowFeed />
+        </Suspense>
+      </div>
+    </div>
+  );
+}
+
+function Skeleton({ height, label }) {
+  return (
+    <div style={{
+      height,
+      borderRadius: '8px',
+      background: 'repeating-linear-gradient(90deg, #e2e8f0 0, #f1f5f9 50%, #e2e8f0 100%)',
+      backgroundSize: '200% 100%',
+      animation: 'pulse 1.4s ease infinite',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      color: '#94a3b8', fontSize: '0.75rem',
+    }}>
+      <style>{\`@keyframes pulse { 0%,100%{background-position:0% 0%} 50%{background-position:100% 0%} }\`}</style>
+      {label}
+    </div>
+  );
+}`,
+    'app/SlowHeader.js': `async function delay(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+export async function SlowHeader() {
+  await delay(600);   // simulates a slow DB query
+  return (
+    <div style={{
+      padding: '0.875rem 1rem',
+      background: '#f0fdf4',
+      border: '1px solid #bbf7d0',
+      borderRadius: '8px',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '0.75rem',
+    }}>
+      <span style={{ fontSize: '1.5rem' }}>👤</span>
+      <div>
+        <p style={{ margin: 0, fontWeight: 600, fontSize: '0.875rem' }}>Alice Johnson</p>
+        <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b' }}>Streamed in after 600ms</p>
+      </div>
+    </div>
+  );
+}`,
+    'app/SlowFeed.js': `async function delay(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+const POSTS = [
+  { id: 1, title: 'Getting started with React Server Components' },
+  { id: 2, title: 'Why streaming SSR matters for UX' },
+  { id: 3, title: 'Suspense boundaries in practice' },
+];
+
+export async function SlowFeed() {
+  await delay(2000);  // simulates a slow API call
+  return (
+    <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+      {POSTS.map(post => (
+        <li key={post.id} style={{
+          padding: '0.625rem 0.875rem',
+          border: '1px solid #e2e8f0',
+          borderRadius: '8px',
+          fontSize: '0.875rem',
+        }}>
+          {post.title}{' '}
+          <span style={{ color: '#94a3b8', fontSize: '0.75rem' }}>(streamed after 2000ms)</span>
+        </li>
+      ))}
+    </ul>
+  );
+}`,
+  }}
+  activeFile="app/page.js"
+  height={500}
+/>
+
+---
+
+## Punti chiave
+
+<Callout type="tip">
+**`loading.js` = `<Suspense>` automatico per l'intera pagina.** Posizionalo accanto a qualsiasi `page.js` e il segmento ottiene uno skeleton di loading istantaneo. Copre solo la propria cartella — non si propaga alle route annidate.
+
+**`error.js` deve essere `'use client'`.** I React error boundary sono una funzionalità del browser. Senza la direttiva ottieni un errore di build. Usa `unstable_retry` (in questa versione) per ri-renderizzare il segmento fallito senza un ricaricamento completo della pagina.
+
+**`<Suspense>` esplicito per parti di una pagina.** Quando alcuni dati sono veloci e altri sono lenti, avvolgi solo la parte lenta. Il contenuto veloce viene renderizzato immediatamente; quello lento fa streaming quando è pronto. L'utente ha subito qualcosa da leggere.
+
+**Streaming = inviare HTML a pezzi.** Il server non aspetta tutti i dati prima di inviare. Il TTFB rimane basso indipendentemente da quanto sia lento il componente più lento, perché la shell arriva per prima. Ogni boundary `<Suspense>` si risolve in modo indipendente.
+
+**Posiziona `<Suspense>` vicino al lavoro lento.** Più in alto nell'albero lo metti, più blocchi. Sposta i boundary verso il basso per massimizzare ciò che viene renderizzato immediatamente.
+</Callout>
+
+---
+
+**Riferimenti:** [Loading UI e Streaming](https://nextjs.org/docs/app/building-your-application/routing/loading-ui-and-streaming) · [Gestione degli Errori](https://nextjs.org/docs/app/building-your-application/routing/error-handling) · [React Suspense](https://react.dev/reference/react/Suspense) · [loading.js](https://nextjs.org/docs/app/api-reference/file-conventions/loading) · [error.js](https://nextjs.org/docs/app/api-reference/file-conventions/error)

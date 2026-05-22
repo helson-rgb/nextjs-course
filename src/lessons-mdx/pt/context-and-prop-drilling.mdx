@@ -1,0 +1,487 @@
+# Hooks Customizados, useReducer e Context
+
+Esta lição é o capstone do capítulo de Fundamentos de React. Hooks customizados, `useReducer` e Context são as três ferramentas que te permitem domar a complexidade à medida que uma app React cresce: extrair lógica repetida, modelar transições de estado de forma explícita, e partilhar dados sem passar props por cada nível da árvore.
+
+## Extrair lógica em hooks customizados
+
+Um hook customizado é uma função JavaScript cujo nome começa com `use` e que chama pelo menos um outro hook dentro de si. Só isso — sem API especial, sem registo. Escreves-o, chamas-o, o React trata-o como qualquer outra chamada de hook.
+
+```jsx
+// useToggle — estado booleano com uma função flip estável
+import { useState, useCallback } from 'react';
+
+export function useToggle(initial = false) {
+  const [on, setOn] = useState(initial);
+  const toggle = useCallback(() => setOn(v => !v), []);
+  return [on, toggle];
+}
+
+// Utilização — comportamento de estado idêntico, sem boilerplate
+const [menuAberto, toggleMenu] = useToggle();
+const [isDark, toggleDark] = useToggle();
+```
+
+Cada componente que chama `useToggle` obtém o seu próprio estado independente — os hooks não são instâncias partilhadas. O valor de extrair é reutilizar a *lógica*, não partilhar o *estado*.
+
+### useLocalStorage
+
+Persistir estado no `localStorage` requer um inicializador que lê do storage, e um effect que escreve de volta. Extrai isso uma vez:
+
+```jsx
+import { useState, useEffect } from 'react';
+
+export function useLocalStorage(key, initialValue) {
+  const [value, setValue] = useState(() => {
+    // inicializador lazy — corre uma vez no mount
+    try {
+      const stored = window.localStorage.getItem(key);
+      return stored !== null ? JSON.parse(stored) : initialValue;
+    } catch {
+      return initialValue;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(key, JSON.stringify(value));
+    } catch {}
+  }, [key, value]);
+
+  return [value, setValue];
+}
+```
+
+Substituto direto de `useState`:
+
+```jsx
+// Antes
+const [tema, setTema] = useState('light');
+
+// Depois — persiste entre recarregamentos de página
+const [tema, setTema] = useLocalStorage('tema', 'light');
+```
+
+### useDebounce
+
+Inputs de pesquisa que fazem um pedido de rede em cada tecla são dispendiosos. `useDebounce` atrasa a atualização de um valor até o utilizador pausar:
+
+```jsx
+import { useState, useEffect } from 'react';
+
+export function useDebounce(value, delay = 300) {
+  const [debounced, setDebounced] = useState(value);
+
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(id); // cancela se o valor mudar antes do delay
+  }, [value, delay]);
+
+  return debounced;
+}
+
+// Utilização
+const query = useDebounce(inputValue, 400); // só atualiza após pausa de 400ms
+useEffect(() => {
+  if (query) fetchResultados(query);
+}, [query]);
+```
+
+A função de limpeza cancela o timeout pendente em cada tecla — apenas o último, depois de o utilizador parar de escrever, dispara.
+
+### Regras dentro de hooks customizados
+
+Os hooks customizados seguem as mesmas regras que os hooks normais: chama-os ao nível de topo, nunca dentro de condicionais ou loops. Como os hooks customizados chamam hooks dentro deles, a garantia de ordem de chamada do React aplica-se a tudo o que está dentro deles.
+
+## Quando useReducer supera useState
+
+`useReducer` aceita uma função reducer e um estado inicial, devolve o estado atual e uma função `dispatch`:
+
+```jsx
+const [state, dispatch] = useReducer(reducer, initialState);
+dispatch({ type: 'ADICIONAR', payload: novoItem });
+```
+
+O reducer é uma função pura: `(estadoAtual, action) => novoEstado`. Vive fora do componente, aceita qualquer objeto de action e devolve um novo estado.
+
+**Usa `useReducer` quando:**
+
+- Várias chamadas `useState` sempre atualizam em conjunto (um formulário com 5 campos).
+- O próximo estado depende de condições complexas em múltiplos campos existentes.
+- Queres testar transições de estado de forma isolada — o reducer é uma função simples, facilmente testável unitariamente.
+- O mesmo estado é modificado por muitos eventos diferentes, e queres um único sítio para ver todas as transições.
+
+Compara a mesma lista de tarefas expressa de duas formas:
+
+```jsx
+// useState — disperso, difícil de ver todas as transições de uma vez
+const [tarefas, setTarefas] = useState([]);
+function adicionarTarefa(texto)  { setTarefas(prev => [...prev, { id: Date.now(), texto, feito: false }]); }
+function alternarTarefa(id)      { setTarefas(prev => prev.map(t => t.id === id ? {...t, feito: !t.feito} : t)); }
+function removerTarefa(id)       { setTarefas(prev => prev.filter(t => t.id !== id)); }
+function limparFeitas()          { setTarefas(prev => prev.filter(t => !t.feito)); }
+```
+
+```jsx
+// useReducer — todas as transições num só lugar, nomeadas e explícitas
+function tarefasReducer(state, action) {
+  switch (action.type) {
+    case 'adicionar':
+      return [...state, { id: Date.now(), texto: action.texto, feito: false }];
+    case 'alternar':
+      return state.map(t => t.id === action.id ? { ...t, feito: !t.feito } : t);
+    case 'remover':
+      return state.filter(t => t.id !== action.id);
+    case 'limpar_feitas':
+      return state.filter(t => !t.feito);
+    default:
+      throw new Error('Action desconhecida: ' + action.type);
+  }
+}
+
+const [tarefas, dispatch] = useReducer(tarefasReducer, []);
+dispatch({ type: 'adicionar', texto: 'Comprar leite' });
+dispatch({ type: 'alternar', id: 3 });
+```
+
+O `default: throw` é intencional — actions desconhecidas são erros do programador, não condições de runtime.
+
+## Context: estado partilhado sem prop drilling
+
+O prop drilling — passar o mesmo valor através de 4 componentes intermediários que não o usam — é um sinal de que o context pode ajudar:
+
+```jsx
+// Passar tema por cada camada
+<App tema={tema}>
+  <Layout tema={tema}>
+    <Sidebar tema={tema}>
+      <Button tema={tema} /> {/* finalmente usado aqui */}
+    </Sidebar>
+  </Layout>
+</App>
+```
+
+O Context fornece um valor em qualquer ponto da árvore e torna-o disponível a qualquer descendente que o peça — sem props:
+
+```jsx
+import { createContext, useContext, useState } from 'react';
+
+// 1. Cria o context — null é o sentinel para "provider em falta"
+const ThemeContext = createContext(null);
+
+// 2. O provider é dono do estado e distribui-o
+export function ThemeProvider({ children }) {
+  const [tema, setTema] = useState('light');
+  return (
+    <ThemeContext.Provider value={{ tema, setTema }}>
+      {children}
+    </ThemeContext.Provider>
+  );
+}
+
+// 3. Um hook customizado valida o context e expõe uma API limpa
+export function useTema() {
+  const ctx = useContext(ThemeContext);
+  if (!ctx) throw new Error('useTema deve ser usado dentro de <ThemeProvider>');
+  return ctx;
+}
+```
+
+Qualquer componente dentro de `<ThemeProvider>` pode chamar `useTema()` — não importa a profundidade:
+
+```jsx
+function Button() {
+  const { tema } = useTema(); // lê do context
+  return <button className={'btn btn--' + tema}>Clica</button>;
+}
+```
+
+<Callout type="warn">
+**O Context volta a renderizar todos os consumidores em cada mudança de valor.** Quando o estado do `ThemeProvider` atualiza, o React volta a renderizar *todos* os componentes que chamaram `useContext(ThemeContext)` — mesmo que só usem um campo que não mudou. Isto é adequado para dados que mudam lentamente (tema, locale, utilizador atual). É a ferramenta errada para estado de alta frequência (posição, offset de scroll, um ticker em tempo real) — usa uma biblioteca de estado dedicada como Zustand ou Jotai para esses casos.
+
+O Context é um *mecanismo de distribuição*, não uma biblioteca de gestão de estado. Resolve o prop drilling; não substitui o Redux.
+</Callout>
+
+**Quando o context é a ferramenta certa:**
+- Locale / idioma da app (muda no máximo uma vez por sessão).
+- Tema (claro / escuro).
+- Utilizador autenticado (muda apenas no login/logout).
+- Definições globais da app que raramente atualizam.
+
+**Quando não é:**
+- Estado partilhado por apenas 2–3 componentes adjacentes — eleva o estado para o pai comum mais próximo.
+- Dados derivados que atualizam frequentemente — a composição de componentes com `children` muitas vezes resolve o prop drilling sem nenhum context.
+
+---
+
+## Playground 1 — useLocalStorage com toggle de tema
+
+`useLocalStorage` é um substituto direto de `useState`. O hook lê o valor inicial do `localStorage` (inicializador lazy), e um effect escreve de volta em cada mudança. Recarrega a pré-visualização — o tema selecionado sobrevive ao recarregamento. Tenta extendê-lo: adiciona uma opção `'sistema'` que lê `prefers-color-scheme`.
+
+<Playground
+  files={{
+    '/useLocalStorage.js': `import { useState, useEffect } from 'react';
+
+export function useLocalStorage(key, initialValue) {
+  const [value, setValue] = useState(() => {
+    try {
+      const stored = window.localStorage.getItem(key);
+      return stored !== null ? JSON.parse(stored) : initialValue;
+    } catch {
+      return initialValue;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(key, JSON.stringify(value));
+    } catch {}
+  }, [key, value]);
+
+  return [value, setValue];
+}`,
+    '/App.js': `import { useLocalStorage } from './useLocalStorage';
+
+const TEMAS = {
+  light: { bg: '#f8fafc', fg: '#0f172a', card: 'white',   border: '#e2e8f0' },
+  dark:  { bg: '#0f172a', fg: '#e2e8f0', card: '#1e293b', border: '#334155' },
+};
+
+export default function App() {
+  const [tema, setTema] = useLocalStorage('sandbox-tema', 'light');
+  const c = TEMAS[tema];
+
+  return (
+    <div style={{ background: c.bg, color: c.fg, minHeight: '100vh', padding: '2rem', transition: 'all 0.2s', fontFamily: 'sans-serif' }}>
+      <div style={{ background: c.card, border: '1px solid ' + c.border, borderRadius: '8px', padding: '1.5rem', maxWidth: '340px' }}>
+        <p style={{ margin: '0 0 0.375rem', fontWeight: 700 }}>Tema atual: {tema}</p>
+        <p style={{ margin: '0 0 1.25rem', fontSize: '0.8rem', opacity: 0.6 }}>
+          Recarrega a pré-visualização — a escolha persiste no localStorage.
+        </p>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          {Object.keys(TEMAS).map(t => (
+            <button
+              key={t}
+              onClick={() => setTema(t)}
+              style={{
+                flex: 1, padding: '0.5rem', borderRadius: '6px',
+                border: '1px solid ' + c.border,
+                background: tema === t ? 'rebeccapurple' : c.card,
+                color: tema === t ? 'white' : c.fg,
+                fontWeight: 600, cursor: 'pointer',
+                fontSize: '0.875rem', fontFamily: 'sans-serif',
+                transition: 'all 0.15s',
+              }}
+            >
+              {t === 'light' ? '☀ Claro' : '☽ Escuro'}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}`,
+  }}
+  activeFile="/useLocalStorage.js"
+/>
+
+## Playground 2 — Lista de tarefas com useReducer
+
+O reducer vive em `tarefasReducer.js` — todas as transições de estado num só lugar, cada uma nomeada e explícita. O componente em `App.js` apenas chama `dispatch` com objetos de action; não contém nenhuma lógica de mutação. Tenta adicionar um novo tipo de action `'editar'` que atualiza o texto de uma tarefa.
+
+<Playground
+  files={{
+    '/tarefasReducer.js': `export const estadoInicial = [
+  { id: 1, texto: 'Ler a documentação React', feito: true  },
+  { id: 2, texto: 'Construir uma app de tarefas', feito: false },
+  { id: 3, texto: 'Aprender useReducer',     feito: false },
+];
+
+export function tarefasReducer(state, action) {
+  switch (action.type) {
+    case 'adicionar':
+      return [...state, { id: Date.now(), texto: action.texto, feito: false }];
+    case 'alternar':
+      return state.map(t => t.id === action.id ? { ...t, feito: !t.feito } : t);
+    case 'remover':
+      return state.filter(t => t.id !== action.id);
+    case 'limpar_feitas':
+      return state.filter(t => !t.feito);
+    default:
+      throw new Error('Action desconhecida: ' + action.type);
+  }
+}`,
+    '/App.js': `import { useReducer, useState } from 'react';
+import { tarefasReducer, estadoInicial } from './tarefasReducer';
+
+export default function App() {
+  const [tarefas, dispatch] = useReducer(tarefasReducer, estadoInicial);
+  const [input, setInput] = useState('');
+
+  function handleAdicionar(e) {
+    e.preventDefault();
+    const texto = input.trim();
+    if (!texto) return;
+    dispatch({ type: 'adicionar', texto });
+    setInput('');
+  }
+
+  const feitasCount = tarefas.filter(t => t.feito).length;
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '400px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+        <h2 style={{ margin: 0, fontSize: '1.125rem', fontWeight: 700 }}>Tarefas</h2>
+        <span style={{ fontSize: '0.8rem', color: '#64748b' }}>{feitasCount} / {tarefas.length} feitas</span>
+      </div>
+
+      <form onSubmit={handleAdicionar} style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+        <input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          placeholder="Adicionar uma tarefa…"
+          style={{ flex: 1, padding: '0.5rem 0.75rem', border: '1px solid #e2e8f0', borderRadius: '6px', fontSize: '0.875rem', fontFamily: 'sans-serif', outline: 'none' }}
+        />
+        <button type="submit" style={{ padding: '0.5rem 1rem', background: 'rebeccapurple', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer', fontSize: '0.875rem', fontFamily: 'sans-serif' }}>
+          Adicionar
+        </button>
+      </form>
+
+      <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        {tarefas.map(tarefa => (
+          <li key={tarefa.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.625rem 0.875rem', background: 'white', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
+            <input
+              type="checkbox"
+              checked={tarefa.feito}
+              onChange={() => dispatch({ type: 'alternar', id: tarefa.id })}
+              style={{ width: '1rem', height: '1rem', cursor: 'pointer', accentColor: 'rebeccapurple' }}
+            />
+            <span style={{ flex: 1, fontSize: '0.875rem', textDecoration: tarefa.feito ? 'line-through' : 'none', color: tarefa.feito ? '#94a3b8' : '#0f172a' }}>
+              {tarefa.texto}
+            </span>
+            <button
+              onClick={() => dispatch({ type: 'remover', id: tarefa.id })}
+              style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '1.125rem', lineHeight: 1, padding: '0 0.2rem' }}
+            >×</button>
+          </li>
+        ))}
+      </ul>
+
+      {feitasCount > 0 && (
+        <button
+          onClick={() => dispatch({ type: 'limpar_feitas' })}
+          style={{ width: '100%', padding: '0.5rem', background: 'transparent', color: '#64748b', border: '1px solid #e2e8f0', borderRadius: '6px', fontFamily: 'sans-serif', fontSize: '0.8rem', cursor: 'pointer' }}
+        >
+          Limpar {feitasCount} concluídas
+        </button>
+      )}
+    </div>
+  );
+}`,
+  }}
+  activeFile="/tarefasReducer.js"
+/>
+
+## Playground 3 — ThemeContext
+
+`ThemeProvider` é dono do estado; `ThemeToggle` e `ColorSwatch` leem de `ThemeContext` via `useTema()` — sem props passadas entre eles. Repara que o provider está na raiz em `App.js`. Move-o para dentro de um dos componentes consumidores e vê o guard de `useTema` lançar um erro. Tenta adicionar um quinto tema ou persistir a seleção com `useLocalStorage`.
+
+<Playground
+  files={{
+    '/ThemeContext.js': `import { createContext, useContext, useState } from 'react';
+
+const ThemeContext = createContext(null);
+
+export const PALETAS = {
+  light:  { label: 'Claro',   bg: '#f8fafc', fg: '#0f172a', accent: '#7c3aed' },
+  dark:   { label: 'Escuro',  bg: '#0f172a', fg: '#e2e8f0', accent: '#c4b5fd' },
+  forest: { label: 'Floresta', bg: '#052e16', fg: '#dcfce7', accent: '#4ade80' },
+  ocean:  { label: 'Oceano',  bg: '#0c4a6e', fg: '#e0f2fe', accent: '#38bdf8' },
+};
+
+export function ThemeProvider({ children }) {
+  const [tema, setTema] = useState('light');
+  return (
+    <ThemeContext.Provider value={{ tema, setTema }}>
+      {children}
+    </ThemeContext.Provider>
+  );
+}
+
+export function useTema() {
+  const ctx = useContext(ThemeContext);
+  if (!ctx) throw new Error('useTema deve ser usado dentro de <ThemeProvider>');
+  return ctx;
+}`,
+    '/App.js': `import { ThemeProvider, useTema, PALETAS } from './ThemeContext';
+
+function ThemeToggle() {
+  const { tema, setTema } = useTema();
+  return (
+    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+      {Object.entries(PALETAS).map(([key, { label, accent }]) => (
+        <button
+          key={key}
+          onClick={() => setTema(key)}
+          style={{
+            padding: '0.375rem 0.75rem', borderRadius: '6px',
+            border: tema === key ? '2px solid white' : '1px solid rgba(255,255,255,0.2)',
+            background: accent, color: key === 'light' ? '#0f172a' : 'white',
+            fontWeight: tema === key ? 700 : 400,
+            cursor: 'pointer', fontSize: '0.8rem', fontFamily: 'sans-serif',
+          }}
+        >{label}</button>
+      ))}
+    </div>
+  );
+}
+
+function ColorSwatch() {
+  const { tema } = useTema();
+  const { label, accent, bg, fg } = PALETAS[tema];
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.75rem 1rem', background: bg, color: fg, borderRadius: '6px', marginTop: '1rem', fontFamily: 'sans-serif', fontSize: '0.875rem', border: '1px solid rgba(255,255,255,0.1)' }}>
+      <div style={{ width: '2rem', height: '2rem', borderRadius: '50%', background: accent, flexShrink: 0 }} />
+      <div>
+        <p style={{ margin: 0, fontWeight: 700 }}>Tema {label}</p>
+        <p style={{ margin: 0, fontSize: '0.75rem', opacity: 0.7 }}>{accent}</p>
+      </div>
+    </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ThemeProvider>
+      <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '380px' }}>
+        <p style={{ margin: '0 0 0.75rem', fontSize: '0.8rem', color: '#64748b' }}>
+          ThemeToggle e ColorSwatch partilham o context — sem props entre eles.
+        </p>
+        <ThemeToggle />
+        <ColorSwatch />
+      </div>
+    </ThemeProvider>
+  );
+}`,
+  }}
+  activeFile="/ThemeContext.js"
+/>
+
+---
+
+## Conclusões principais
+
+<Callout type="tip">
+**Um hook customizado é apenas uma função que chama hooks.** Chama-lhe `use*`, extrai o estado + effects + lógica do teu componente, devolve o que o chamador precisa. Cada componente que chama o hook obtém o seu próprio estado independente.
+
+**`useLocalStorage` é `useState` com persistência.** O inicializador lazy lê do storage uma vez; o effect escreve de volta em cada mudança. É um substituto direto: `const [x, setX] = useLocalStorage('chave', padrão)`.
+
+**`useReducer` centraliza todas as transições.** Quando um componente tem muitas formas de atualizar o mesmo estado, coloca-as num reducer. O reducer é puro, testável e legível — cada transição é visível numa instrução `switch`.
+
+**O Context distribui; não gere.** Usa-o para valores partilhados que mudam lentamente (tema, locale, utilizador). Cada mudança de valor de context volta a renderizar todos os consumidores — mantém os valores de context estáveis e prefere dividir os contexts por frequência de atualização.
+
+**Envolve sempre `useContext` num hook customizado com null guard.** `if (!ctx) throw new Error(...)` apanha componentes acidentalmente renderizados fora do seu provider — um erro de runtime é muito mais fácil de depurar do que um `undefined` silencioso.
+</Callout>
+
+---
+
+**Referências:** [Reutilizar Lógica com Hooks Customizados](https://react.dev/learn/reusing-logic-with-custom-hooks) · [Extrair Lógica de Estado para um Reducer](https://react.dev/learn/extracting-state-logic-into-a-reducer) · [Passar Dados Profundamente com Context](https://react.dev/learn/passing-data-deeply-with-context) · [useReducer](https://react.dev/reference/react/useReducer) · [useContext](https://react.dev/reference/react/useContext)

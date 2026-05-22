@@ -1,0 +1,228 @@
+# App Router Basics
+
+The App Router is how Next.js has handled routing since version 13. Folders map directly to URL segments; a handful of reserved filenames control what gets rendered at each segment. There is no config file — the structure of `src/app/` is the config.
+
+## The app/ directory convention
+
+Every folder inside `src/app/` that contains a `page.js` becomes a public route. Folders without a `page.js` exist only to group files — they are never exposed as URLs.
+
+```
+src/app/
+├── layout.js          → wraps every route (root layout)
+├── page.js            → renders /
+├── about/
+│   └── page.js        → renders /about
+├── curriculum/
+│   └── page.js        → renders /curriculum
+└── lessons/
+    ├── page.js        → renders /lessons
+    └── [slug]/
+        ├── page.js    → renders /lessons/jsx-and-rendering, /lessons/state-and-events, …
+        └── not-found.js
+```
+
+This is the actual file tree of the app you are reading right now. Each `page.js` is a React component — async by default, which means it can `await` data before it renders.
+
+## Special filenames
+
+Next.js reserves a set of filenames that each do a specific job in a route segment. You can add them to any folder.
+
+| File | Purpose |
+|---|---|
+| `page.js` | Unique UI for that URL; makes the route publicly accessible |
+| `layout.js` | Wraps all children and pages in the segment; persists across navigations |
+| `loading.js` | Instant loading skeleton shown while the page suspends |
+| `error.js` | Error boundary; catches runtime errors and lets the user recover |
+| `not-found.js` | Rendered when `notFound()` is called inside the route |
+| `template.js` | Like a layout but re-mounted on every navigation (state resets) |
+| `route.js` | API endpoint (no UI); handles GET, POST, etc. |
+
+<Callout type="tip">
+**These files are colocated with your route.** A `loading.js` inside `src/app/lessons/[slug]/` only wraps that route, not the whole app. You can add them at any nesting level and they only affect the segment they live in.
+</Callout>
+
+## Route segments
+
+A route segment is one folder level. The full URL is built by joining all segment names from the root downward:
+
+```
+app/
+└── blog/           → segment: "blog"
+    └── posts/      → segment: "posts"
+        └── page.js → URL: /blog/posts
+```
+
+## Dynamic segments — [param]
+
+Wrap a folder name in square brackets to make it a dynamic segment. The matched value is available as `params.param` inside `page.js` and `layout.js`:
+
+```jsx
+// src/app/lessons/[slug]/page.js
+export default async function LessonPage({ params }) {
+  const { slug } = await params;   // e.g. "jsx-and-rendering"
+  return <h1>{slug}</h1>;
+}
+```
+
+`params` is a Promise in Next.js 15+ — you must `await` it.
+
+## Catch-all segments — [...slug]
+
+A folder named `[...slug]` matches any number of additional segments. The value is an array:
+
+```
+app/docs/[...slug]/page.js
+```
+
+- `/docs/react` → `params.slug = ['react']`
+- `/docs/react/hooks` → `params.slug = ['react', 'hooks']`
+- `/docs` → **404** (catch-all does not match zero segments)
+
+## Optional catch-all — [[...slug]]
+
+Double brackets make the catch-all optional, so it also matches the base path:
+
+```
+app/docs/[[...slug]]/page.js
+```
+
+- `/docs` → `params.slug = undefined` (or `[]`)
+- `/docs/react/hooks` → `params.slug = ['react', 'hooks']`
+
+## Route groups — (group)
+
+Wrapping a folder name in parentheses creates a **route group**: it organises files without affecting the URL. The group name does not appear in the path:
+
+```
+src/app/
+└── (marketing)/
+    ├── layout.js    → layout for marketing pages only
+    ├── page.js      → renders /
+    └── about/
+        └── page.js  → renders /about
+```
+
+Route groups let you share a layout between some routes but not others, without that layout applying to the entire app.
+
+## Parallel routes — @slot
+
+Prefix a folder with `@` to create a named slot that can be rendered simultaneously in a parent layout. High-level: a layout can accept multiple named children (`@sidebar`, `@modal`) and render them side by side. Each slot is independently navigated. Useful for dashboards, split-views, and modals that need their own URL. More in the advanced routing lesson.
+
+## Intercepting routes
+
+A folder prefixed with `(.)`, `(..)`, or `(...)` intercepts a route and renders different UI inside the current layout — the most common use is a photo modal that opens in-place while the URL changes, then shows the full page on hard refresh. This is covered in the advanced routing lesson.
+
+---
+
+## This app's file tree
+
+Here is the complete structure of `src/app/` in Next Academy:
+
+```
+src/app/
+├── favicon.ico
+├── globals.css
+├── layout.js               ← root layout: <html>, fonts, Header, Footer
+├── page.js                 ← /  (home page)
+├── about/
+│   └── page.js             ← /about
+├── curriculum/
+│   └── page.js             ← /curriculum
+└── lessons/
+    ├── page.js             ← /lessons  (lesson index)
+    └── [slug]/
+        ├── page.js         ← /lessons/jsx-and-rendering, /lessons/state-and-events …
+        └── not-found.js    ← shown when getLessonBySlug returns null
+```
+
+The `[slug]` page calls `generateStaticParams` at build time, emitting one HTML file per lesson slug. At runtime it reads the slug from `params`, fetches the lesson metadata, then imports the right MDX file.
+
+---
+
+## Playground — minimal 3-route Next.js app
+
+This sandbox shows the essential file structure: a root layout, a home page, and a dynamic `[id]` route. Edit the layout to add a nav link or add a new folder/page to see the router respond.
+
+<Playground
+  template="nextjs"
+  files={{
+    'app/layout.js': `export default function RootLayout({ children }) {
+  return (
+    <html lang="en">
+      <body style={{ fontFamily: 'sans-serif', margin: 0 }}>
+        <nav style={{
+          padding: '0.75rem 1.5rem',
+          borderBottom: '1px solid #e2e8f0',
+          display: 'flex',
+          gap: '1rem',
+        }}>
+          <a href="/"        style={{ color: '#494bd6', textDecoration: 'none', fontWeight: 600, fontSize: '0.875rem' }}>Home</a>
+          <a href="/about"   style={{ color: '#494bd6', textDecoration: 'none', fontWeight: 600, fontSize: '0.875rem' }}>About</a>
+          <a href="/posts/1" style={{ color: '#494bd6', textDecoration: 'none', fontWeight: 600, fontSize: '0.875rem' }}>Post 1</a>
+          <a href="/posts/2" style={{ color: '#494bd6', textDecoration: 'none', fontWeight: 600, fontSize: '0.875rem' }}>Post 2</a>
+        </nav>
+        <main style={{ padding: '2rem' }}>{children}</main>
+      </body>
+    </html>
+  );
+}`,
+    'app/page.js': `export default function Home() {
+  return (
+    <div>
+      <h1 style={{ fontSize: '2rem', fontWeight: 700, marginBottom: '1rem' }}>Home</h1>
+      <p style={{ color: '#64748b' }}>
+        This is the root <code>page.js</code> — it renders at <code>/</code>.
+      </p>
+    </div>
+  );
+}`,
+    'app/about/page.js': `export default function About() {
+  return (
+    <div>
+      <h1 style={{ fontSize: '2rem', fontWeight: 700, marginBottom: '1rem' }}>About</h1>
+      <p style={{ color: '#64748b' }}>
+        The <code>about/</code> folder contains a <code>page.js</code>, so it
+        becomes the route <code>/about</code>.
+      </p>
+    </div>
+  );
+}`,
+    'app/posts/[id]/page.js': `export default async function PostPage({ params }) {
+  const { id } = await params;
+  return (
+    <div>
+      <h1 style={{ fontSize: '2rem', fontWeight: 700, marginBottom: '1rem' }}>Post {id}</h1>
+      <p style={{ color: '#64748b' }}>
+        The <code>[id]</code> folder is a dynamic segment.
+        The value <strong>{id}</strong> comes from the URL.
+      </p>
+      <p style={{ color: '#64748b', marginTop: '0.5rem', fontSize: '0.875rem' }}>
+        Try changing the URL to <code>/posts/42</code>.
+      </p>
+    </div>
+  );
+}`,
+  }}
+  activeFile="app/posts/[id]/page.js"
+  height={460}
+/>
+
+---
+
+## Special-file cheat sheet
+
+<Callout type="tip">
+| File | When to add it |
+|---|---|
+| `page.js` | Every route that should be publicly accessible |
+| `layout.js` | Shared chrome (nav, sidebar) that must persist across child navigations |
+| `loading.js` | When a page does async work and you want an instant skeleton |
+| `error.js` | When a page might throw at runtime and you want a recovery UI |
+| `not-found.js` | When the page calls `notFound()` (e.g. resource does not exist) |
+| `template.js` | When you need state to reset on each navigation (rare) |
+| `route.js` | JSON API endpoints — no JSX, just `Response` objects |
+</Callout>
+
+---
+
+**References:** [Routing](https://nextjs.org/docs/app/building-your-application/routing) · [Defining Routes](https://nextjs.org/docs/app/building-your-application/routing/defining-routes) · [Dynamic Routes](https://nextjs.org/docs/app/building-your-application/routing/dynamic-routes) · [Route Groups](https://nextjs.org/docs/app/building-your-application/routing/route-groups) · [Parallel Routes](https://nextjs.org/docs/app/building-your-application/routing/parallel-routes)

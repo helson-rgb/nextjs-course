@@ -2,6 +2,7 @@
   "nav.home":       "Início",
   "nav.lessons":    "Lições",
   "nav.curriculum": "Currículo",
+  "nav.dashboard":  "Dashboard",
   "nav.about":      "Sobre",
 
   "home.headline": "Aprenda React & Next.js construindo",
@@ -28,6 +29,9 @@
   "lesson.playground_note": "Esta lição irá conter conteúdo MDX e um playground interativo com Sandpack.",
   "lesson.prev": "← Anterior",
   "lesson.next": "Próxima →",
+  "lesson.mark_complete": "Marcar como concluída",
+  "lesson.completed":     "Concluída",
+  "lesson.progress":      "{done} de {total} concluídas",
 
   "lesson.jsx-and-rendering.title":   "JSX e Renderização",
   "lesson.jsx-and-rendering.summary": "Aprende como o JSX estende o JavaScript para descrever a UI, como o Babel o transforma e como o React reconcilia o DOM virtual com o real.",
@@ -68,14 +72,33 @@
   "lesson.route-handlers.title":   "Route Handlers",
   "lesson.route-handlers.summary": "Constrói endpoints JSON com route.js, trata GET/POST/PATCH/DELETE, lê corpos de pedido e devolve objetos Response tipados.",
 
-  "lesson.metadata-and-seo.title":   "Metadata e SEO",
-  "lesson.metadata-and-seo.summary": "Exporta um objeto metadata estático ou uma função generateMetadata, define tags Open Graph e verifica as tuas páginas no head do browser.",
+  "lesson.metadata-image-font.title":   "Metadata, Imagens e Fontes",
+  "lesson.metadata-image-font.summary": "Defina títulos de página e tags Open Graph com a API de metadata, sirva imagens otimizadas com next/image e elimine layout shift com next/font.",
+
+  "lesson.server-actions.title":   "Server Actions",
+  "lesson.server-actions.summary": "Mude dados com actions \"use server\" chamadas diretamente de formulários, exiba estado pendente com useFormStatus, trate erros com useActionState e revalide o cache com revalidatePath.",
+
+  "lesson.caching-and-deploy.title":   "Cache & Deploy",
+  "lesson.caching-and-deploy.summary": "Entenda os quatro caches do Next.js, controle renderização estática vs dinâmica, revalide sob demanda, proteja rotas com middleware e publique no Vercel.",
 
   "lesson.loading-and-error-states.title":   "Estados de Carregamento e Erro",
   "lesson.loading-and-error-states.summary": "Adiciona skeletons de carregamento instantâneos com loading.js, apanha erros em runtime com error.js e compõe Suspense boundaries para streaming granular.",
 
   "lesson.deploy-and-optimize.title":   "Deploy e Otimização",
   "lesson.deploy-and-optimize.summary": "Publica no Vercel, analisa o output do build, define variáveis de ambiente, ativa a otimização de imagens e corre o Lighthouse para medir a performance real.",
+
+  "dashboard.title":          "Dashboard",
+  "dashboard.progress_label": "lições concluídas",
+  "dashboard.last_lesson":    "Última lição",
+  "dashboard.continue":       "Continuar →",
+  "dashboard.start":          "Iniciar o curso →",
+  "dashboard.certificate_heading": "Certificado de Conclusão",
+  "dashboard.certificate_body":    "Concluíste todas as {total} lições. Parabéns!",
+  "dashboard.download_pdf":        "Baixar Certificado PDF",
+  "dashboard.no_progress":         "Ainda não iniciaste nenhuma lição.",
+
+  "palette.placeholder": "Pesquisar lições…",
+  "palette.no_results":  "Nenhuma lição encontrada.",
 
   "notfound.code":   "404",
   "notfound.title":  "Lição não encontrada",

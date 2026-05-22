@@ -1,0 +1,277 @@
+# Cache & Deploy
+
+Next.js ha quattro cache distinte che operano a livelli diversi. Capire quale cache contiene cosa — e come invalidarla — è la chiave per costruire app che siano allo stesso tempo veloci e corrette.
+
+## Le quattro cache
+
+```
+Richiesta
+  │
+  ▼
+┌──────────────────────────────────────────────────────┐
+│  1. Request Memoization                              │
+│     Per render, in memoria. Deduplica chiamate       │
+│     fetch() identiche in un singolo render server.   │
+│     Scope: una richiesta. Non persiste mai.          │
+└──────────────────────┬───────────────────────────────┘
+                       │ cache miss
+                       ▼
+┌──────────────────────────────────────────────────────┐
+│  2. Data Cache                                       │
+│     Persistente, tra richieste. Archivia risposte    │
+│     fetch() con chiave URL + opzioni.                │
+│     Controllata da: cache / next.revalidate / tags   │
+└──────────────────────┬───────────────────────────────┘
+                       │ dati assemblati
+                       ▼
+┌──────────────────────────────────────────────────────┐
+│  3. Full Route Cache                                 │
+│     Archivia HTML + payload RSC per route statiche. │
+│     Generato a `next build` o dopo ISR.              │
+│     Invalidato da: revalidatePath, revalidateTag     │
+└──────────────────────┬───────────────────────────────┘
+                       │ risposta inviata
+                       ▼
+┌──────────────────────────────────────────────────────┐
+│  4. Router Cache (lato client)                       │
+│     Cache in memoria nel browser dei payload RSC     │
+│     visitati. I link prefetchati sono cachati.       │
+│     Invalidato da: router.refresh(), hard reload     │
+└──────────────────────────────────────────────────────┘
+```
+
+### 1. Request Memoization
+
+In un singolo render server, chiamare `fetch('https://api.example.com/user')` in dieci Server Components diversi produce una sola richiesta di rete. React memorizza il risultato per la durata dell'albero di render. Nessuna configurazione necessaria — è automatico.
+
+Per sorgenti dati che non usano `fetch`, avvolgi la funzione con `React.cache`:
+
+```js
+import { cache } from 'react';
+import { db } from '@/lib/db';
+
+export const getUser = cache(async (id) => db.users.findById(id));
+```
+
+### 2. Data Cache
+
+La Data Cache archivia le risposte di `fetch()` sul server tra le richieste. Persiste tra i deploy fino a essere invalidata esplicitamente.
+
+```js
+// Cached indefinitamente (o fino a purga manuale)
+fetch(url, { cache: 'force-cache' })
+
+// Mai in cache — sempre fresca
+fetch(url, { cache: 'no-store' })
+
+// Cached, rivalida dopo 60 s (ISR)
+fetch(url, { next: { revalidate: 60 } })
+
+// Cached, taggata per purga on-demand
+fetch(url, { next: { tags: ['posts'] } })
+```
+
+### 3. Full Route Cache
+
+Le route statiche — quelle che non usano API runtime — vengono renderizzate a `next build` e archiviate come HTML + payload RSC. Vengono servite direttamente dalla CDN senza computazione server.
+
+Una route diventa **dinamica** non appena usa una di queste API:
+
+| API | Effetto |
+|---|---|
+| `cookies()` | Dinamica |
+| `headers()` | Dinamica |
+| prop `searchParams` | Dinamica |
+| `fetch` con `cache: 'no-store'` | Dinamica |
+| `connection()` | Dinamica |
+
+Tutto il resto rimane statico per default.
+
+### 4. Router Cache (lato client)
+
+Il browser mantiene una cache in memoria dei payload RSC per le route visitate (o prefetchate via `<Link>`). Tornare su una route visitata è istantaneo — nessun round-trip al server.
+
+La Router Cache non è persistente: esiste solo nella sessione della scheda corrente. Chiama `router.refresh()` (da `useRouter`) per forzare una rivalida senza ricaricare la pagina.
+
+---
+
+## Strategie di rivalidazione
+
+### ISR basato sul tempo
+
+```js
+// Rivalida la Data Cache dopo 3600 s
+const res = await fetch('https://api.example.com/posts', {
+  next: { revalidate: 3600 },
+});
+```
+
+La prima richiesta dopo la scadenza del TTL riceve la risposta stale mentre un refetch in background viene eseguito. La richiesta successiva riceve i dati freschi.
+
+### Rivalidazione on-demand
+
+```js
+import { revalidatePath, revalidateTag } from 'next/cache';
+
+// Purga tutte le risposte taggate 'posts' + le voci della Full Route Cache
+// che dipendevano da quelle risposte
+export async function POST(request) {
+  const { tag } = await request.json();
+  revalidateTag(tag);
+  return Response.json({ revalidated: true });
+}
+
+// Oppure purga una pagina specifica
+revalidatePath('/blog/hello-world');
+revalidatePath('/blog', 'page');   // tutte le pagine sotto /blog
+```
+
+`revalidateTag` e `revalidatePath` invalidano anche la **Full Route Cache** per le route interessate — la richiesta successiva ri-renderizza la route e cachea il risultato.
+
+---
+
+## Rendering statico vs dinamico — fattori decisivi
+
+```
+Il componente pagina chiama cookies(), headers(), o usa searchParams?
+  SÌ  → Dinamico (renderizzato a ogni richiesta)
+  NO  → Fa fetch con cache: 'no-store'?
+          SÌ  → Dinamico
+          NO  → Statico (HTML generato a compile time)
+```
+
+Puoi forzare un segmento a essere dinamico con la route segment config:
+
+```js
+export const dynamic = 'force-dynamic';    // sempre render server
+export const dynamic = 'force-static';     // sempre statico (ignora API runtime)
+export const revalidate = 60;              // ISR: rivalida ogni 60 s
+```
+
+---
+
+## `middleware.js` — elaborazione richieste al edge
+
+`middleware.js` nella root di `src/` (o root del progetto) gira sul **runtime Edge** prima di ogni richiesta corrispondente. Può leggere e riscrivere la `Request` in arrivo, impostare header di risposta, reindirizzare, o restituire una risposta anticipata.
+
+```js
+// src/middleware.js
+import { NextResponse } from 'next/server';
+
+export function middleware(request) {
+  const { pathname } = request.nextUrl;
+
+  // Reindirizza il typo singolare /lesson/* al canonico /lessons/*
+  if (pathname.startsWith('/lesson/')) {
+    return NextResponse.redirect(
+      new URL(pathname.replace('/lesson/', '/lessons/'), request.url),
+      308
+    );
+  }
+
+  return NextResponse.next();
+}
+
+// Gira solo sui path corrispondenti — salta asset statici, route api, ecc.
+export const config = {
+  matcher: ['/lesson/:path*', '/lessons/'],
+};
+```
+
+### Cosa può fare il middleware
+
+- Leggere e impostare **request headers** e **response headers**
+- Leggere **cookie** (`request.cookies.get(...)`)
+- **Reindirizzare** (`NextResponse.redirect(...)`) e **riscrivere** (`NextResponse.rewrite(...)`)
+- Restituire una **risposta anticipata** (utile per auth guard)
+- Leggere `request.nextUrl` (URL parsata, geolocalizzazione, IP)
+
+### Cosa non può fare il middleware
+
+- Importare **API Node.js** (`fs`, `crypto`, `path`) — solo runtime Edge
+- Interrogare un **database** direttamente — usa un controllo token leggero
+- Accedere al **file system**
+
+### Pattern comuni di middleware
+
+**Auth gate** — reindirizza al login se non c'è il cookie di sessione:
+
+```js
+export function middleware(request) {
+  const token = request.cookies.get('session')?.value;
+  if (!token && request.nextUrl.pathname.startsWith('/dashboard')) {
+    return NextResponse.redirect(new URL('/login', request.url));
+  }
+  return NextResponse.next();
+}
+```
+
+**A/B testing** — riscrive alla variante in base a un cookie:
+
+```js
+export function middleware(request) {
+  const bucket = request.cookies.get('ab-bucket')?.value ?? 'control';
+  const url = request.nextUrl.clone();
+  url.pathname = bucket === 'test' ? '/home-v2' : '/home';
+  return NextResponse.rewrite(url);
+}
+```
+
+**Internazionalizzazione** — rileva la lingua del browser e reindirizza:
+
+```js
+export function middleware(request) {
+  const lang = request.headers.get('accept-language')?.split(',')[0].split('-')[0];
+  if (lang === 'it' && !request.nextUrl.pathname.startsWith('/it')) {
+    return NextResponse.redirect(new URL(`/it${request.nextUrl.pathname}`, request.url));
+  }
+  return NextResponse.next();
+}
+```
+
+---
+
+## Deploy su Vercel
+
+### Passo dopo passo
+
+1. Push su GitHub
+2. Importa il repository su [vercel.com/new](https://vercel.com/new) — Vercel rileva Next.js automaticamente
+3. Aggiungi variabili d'ambiente in **Settings → Environment Variables**
+4. Deploy — Vercel esegue `next build` e mappa l'output sulla sua infrastruttura
+
+Ogni PR riceve un **preview deployment** — un URL isolato per la revisione prima del merge.
+
+### Cosa mappa dove su Vercel
+
+| Output di `next build` | Infrastruttura Vercel |
+|---|---|
+| `○` Pagine statiche | CDN edge globale |
+| `●` Pagine SSG | CDN edge globale |
+| `ƒ` Route dinamiche | Serverless Functions |
+| `middleware.js` | Edge Middleware (gira in tutte le regioni) |
+| `next/image` | Funzione di ottimizzazione immagini on-demand |
+
+### Self-hosted
+
+Esegui `next build && next start` su qualsiasi host Node.js 20+ (Docker, Railway, Fly.io). Tutte le funzionalità funzionano tranne le reti edge specifiche della piattaforma. Per ISR self-hosted e rivalidazione on-demand, configura un custom cache handler via `next.config.js`.
+
+---
+
+## Checklist deploy
+
+<Callout type="tip">
+Prima di andare in produzione, verifica:
+
+- [ ] `npm run build` termina senza errori — nessun errore TypeScript, MDX o import mancanti
+- [ ] Tutte le variabili d'ambiente segrete sono nel Vercel (o nel tuo host) — non committate in `.env.local`
+- [ ] `NEXT_PUBLIC_SITE_URL` è impostata al dominio di produzione (necessaria per `metadataBase`)
+- [ ] Le route dinamiche che dovrebbero essere statiche sono `○` o `●` nel build output — non accidentalmente `ƒ`
+- [ ] `next/image` ha `priority` sulle immagini above-the-fold
+- [ ] Il matcher di `middleware.js` è il più stretto possibile — evita di girare il middleware su ogni route
+- [ ] Esegui Lighthouse sull'URL di produzione e verifica LCP < 2,5 s, CLS < 0,1
+</Callout>
+
+---
+
+**Riferimenti:** [Caching in Next.js](https://nextjs.org/docs/app/building-your-application/caching) · [revalidatePath](https://nextjs.org/docs/app/api-reference/functions/revalidatePath) · [revalidateTag](https://nextjs.org/docs/app/api-reference/functions/revalidateTag) · [Middleware](https://nextjs.org/docs/app/building-your-application/routing/middleware) · [Deploy](https://nextjs.org/docs/app/getting-started/deploying)

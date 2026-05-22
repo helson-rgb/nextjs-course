@@ -1,0 +1,260 @@
+# Layouts & Templates
+
+A layout wraps a segment and all its children. It mounts once and stays mounted while the user navigates between child routes — state inside the layout is preserved. A template does the same structural job, but React gives it a fresh key on every navigation, so it re-mounts and all state resets.
+
+## Root layout requirements
+
+The root layout (`src/app/layout.js`) is the only required layout in an App Router project. It must render the `<html>` and `<body>` tags — no other file does this:
+
+```jsx
+// src/app/layout.js
+export default function RootLayout({ children }) {
+  return (
+    <html lang="en">
+      <body>{children}</body>
+    </html>
+  );
+}
+```
+
+Every route in the app renders inside this layout. Fonts, global styles, providers, and persistent chrome (header, footer) all go here.
+
+## Nested layouts
+
+Add a `layout.js` to any sub-folder to wrap just those routes. Layouts compose from the outside in:
+
+```
+app/
+├── layout.js           ← wraps everything
+└── lessons/
+    ├── layout.js       ← wraps /lessons and /lessons/[slug]
+    └── [slug]/
+        └── page.js
+```
+
+When a user visits `/lessons/jsx-and-rendering`, the render tree is:
+
+```jsx
+<RootLayout>          {/* app/layout.js */}
+  <LessonsLayout>     {/* app/lessons/layout.js */}
+    <LessonPage />    {/* app/lessons/[slug]/page.js */}
+  </LessonsLayout>
+</RootLayout>
+```
+
+`LessonsLayout` stays mounted as the user moves between lessons — only `LessonPage` swaps out. This is what makes a persistent sidebar feasible: put it in the layout and it never unmounts.
+
+## layout.js vs template.js
+
+| | `layout.js` | `template.js` |
+|---|---|---|
+| Re-mounts on navigation? | No | Yes (gets a new React key) |
+| State preserved? | Yes | No |
+| `useEffect` re-fires? | No | Yes |
+| Suspense fallback on every nav? | No (only first load) | Yes |
+
+Use `template.js` when you need a clean slate on every navigation — for example, a page-entry animation, a form that should reset when you leave and come back, or a `useEffect` that must re-run on each visit.
+
+## Passing data from params to layouts
+
+When a layout lives inside a dynamic segment, it can read `params` exactly like a page:
+
+```jsx
+// src/app/lessons/[slug]/layout.js
+export default async function Layout({ children, params }) {
+  const { slug } = await params;
+  return (
+    <section>
+      <aside>Sidebar for: {slug}</aside>
+      {children}
+    </section>
+  );
+}
+```
+
+`params` is a Promise — always `await` it.
+
+## Why searchParams is not available in layouts
+
+`searchParams` (the `?q=...` part of the URL) is not a prop of `layout.js`. This is intentional: layouts are shared across many pages, and making them depend on search params would force every child navigation to re-render the entire layout. Pass `searchParams` down from `page.js` if a layout-level component needs them, or use `useSearchParams()` in a Client Component inside the layout.
+
+<Callout type="warn">
+If you try to destructure `searchParams` in a layout, it will be `undefined`. Read search params in `page.js` or in a Client Component using `useSearchParams()` from `next/navigation`.
+</Callout>
+
+---
+
+## Building the lessons sidebar
+
+This app has a nested layout at `src/app/lessons/layout.js`. It renders a persistent sidebar showing all chapters and lessons, with the active lesson highlighted. On mobile it collapses to a dropdown.
+
+The layout file is a Server Component that fetches the lesson data and passes it to a Client Component for the interactive parts (active-link detection via `usePathname`):
+
+```jsx
+// src/app/lessons/layout.js
+import { getLessonsByChapter } from '@/lib/lessons';
+import { LessonSidebar } from '@/components/LessonSidebar';
+
+export default function LessonsLayout({ children }) {
+  const chapters = getLessonsByChapter();
+  return (
+    <div className="mx-auto max-w-7xl px-4 py-8 lg:flex lg:gap-8">
+      <LessonSidebar chapters={chapters} />
+      <div className="min-w-0 flex-1">{children}</div>
+    </div>
+  );
+}
+```
+
+`LessonSidebar` is a `'use client'` component that uses `usePathname()` to highlight the current lesson. On desktop it renders an `<aside>`; on mobile it renders a `<select>` that navigates on change.
+
+---
+
+## Playground — nested layouts in action
+
+The sandbox below has a root layout, a marketing layout (for `/` and `/about`), and a docs layout (for `/docs` and `/docs/[id]`). Navigate between the links and watch which layout stays mounted and which re-renders. The counter in the marketing layout persists; the one in the docs layout also persists between `/docs/1` and `/docs/2`.
+
+<Playground
+  template="nextjs"
+  files={{
+    'app/layout.js': `export default function RootLayout({ children }) {
+  return (
+    <html lang="en">
+      <body style={{ fontFamily: 'sans-serif', margin: 0, background: '#f8fafc' }}>
+        <header style={{
+          padding: '0.75rem 1.5rem',
+          background: 'white',
+          borderBottom: '1px solid #e2e8f0',
+          display: 'flex', gap: '1.5rem',
+        }}>
+          <a href="/"        style={link}>Home</a>
+          <a href="/about"   style={link}>About</a>
+          <a href="/docs"    style={link}>Docs</a>
+          <a href="/docs/1"  style={link}>Doc 1</a>
+          <a href="/docs/2"  style={link}>Doc 2</a>
+        </header>
+        {children}
+      </body>
+    </html>
+  );
+}
+const link = { color: '#494bd6', textDecoration: 'none', fontWeight: 600, fontSize: '0.875rem' };`,
+    'app/(marketing)/layout.js': `'use client';
+import { useState } from 'react';
+
+export default function MarketingLayout({ children }) {
+  const [count, setCount] = useState(0);
+  return (
+    <div>
+      <div style={{
+        padding: '0.5rem 1.5rem',
+        background: '#f0fdf4',
+        borderBottom: '1px solid #bbf7d0',
+        fontSize: '0.75rem',
+        color: '#166534',
+        display: 'flex', gap: '1rem', alignItems: 'center',
+      }}>
+        <span>📗 Marketing layout — state persists between / and /about</span>
+        <button
+          onClick={() => setCount(c => c + 1)}
+          style={{ background: '#16a34a', color: 'white', border: 'none', borderRadius: '4px', padding: '0.125rem 0.5rem', cursor: 'pointer', fontSize: '0.75rem' }}
+        >
+          clicks: {count}
+        </button>
+      </div>
+      {children}
+    </div>
+  );
+}`,
+    'app/(marketing)/page.js': `export default function Home() {
+  return (
+    <main style={{ padding: '2rem' }}>
+      <h1 style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: '0.5rem' }}>Home</h1>
+      <p style={{ color: '#64748b' }}>Navigate to /about — the marketing layout counter stays.</p>
+    </main>
+  );
+}`,
+    'app/(marketing)/about/page.js': `export default function About() {
+  return (
+    <main style={{ padding: '2rem' }}>
+      <h1 style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: '0.5rem' }}>About</h1>
+      <p style={{ color: '#64748b' }}>Same marketing layout — counter was preserved.</p>
+    </main>
+  );
+}`,
+    'app/docs/layout.js': `'use client';
+import { useState } from 'react';
+
+export default function DocsLayout({ children }) {
+  const [count, setCount] = useState(0);
+  return (
+    <div style={{ display: 'flex' }}>
+      <aside style={{
+        width: '200px', flexShrink: 0,
+        padding: '1.5rem',
+        borderRight: '1px solid #e2e8f0',
+        background: 'white',
+      }}>
+        <p style={{ fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Docs</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+          <a href="/docs"   style={{ fontSize: '0.875rem', color: '#494bd6', textDecoration: 'none' }}>Overview</a>
+          <a href="/docs/1" style={{ fontSize: '0.875rem', color: '#494bd6', textDecoration: 'none' }}>Doc 1</a>
+          <a href="/docs/2" style={{ fontSize: '0.875rem', color: '#494bd6', textDecoration: 'none' }}>Doc 2</a>
+        </div>
+        <div style={{ marginTop: '1.5rem', padding: '0.75rem', background: '#fef9c3', borderRadius: '6px', fontSize: '0.75rem', color: '#713f12' }}>
+          📙 Docs layout counter:
+          <button
+            onClick={() => setCount(c => c + 1)}
+            style={{ display: 'block', marginTop: '0.25rem', background: '#ca8a04', color: 'white', border: 'none', borderRadius: '4px', padding: '0.125rem 0.5rem', cursor: 'pointer', fontSize: '0.75rem' }}
+          >
+            {count}
+          </button>
+        </div>
+      </aside>
+      <main style={{ flex: 1, padding: '1.5rem' }}>{children}</main>
+    </div>
+  );
+}`,
+    'app/docs/page.js': `export default function DocsIndex() {
+  return (
+    <div>
+      <h1 style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: '0.5rem' }}>Docs</h1>
+      <p style={{ color: '#64748b' }}>Navigate between Doc 1 and Doc 2. The sidebar counter persists.</p>
+    </div>
+  );
+}`,
+    'app/docs/[id]/page.js': `export default async function DocPage({ params }) {
+  const { id } = await params;
+  return (
+    <div>
+      <h1 style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: '0.5rem' }}>Doc {id}</h1>
+      <p style={{ color: '#64748b' }}>
+        The docs layout stays mounted. Only this page component swapped.
+      </p>
+    </div>
+  );
+}`,
+  }}
+  activeFile="app/docs/layout.js"
+  height={520}
+/>
+
+---
+
+## Key takeaways
+
+<Callout type="tip">
+**Layouts persist, pages swap.** When the user navigates between child routes, the layout stays mounted and only the `page.js` component re-renders. Use this for sidebars, headers, and any persistent UI.
+
+**Root layout is required and owns `<html>` and `<body>`.** Nothing else in the app can render these tags.
+
+**Nest layouts for scoped chrome.** A layout in `lessons/` applies only to `/lessons/*` — it does not affect the home page or any other route outside that folder.
+
+**`searchParams` lives in pages, not layouts.** Layouts do not receive search params. Read them in `page.js` or with `useSearchParams()` in a Client Component.
+
+**`template.js` for a clean slate.** When you need state to reset on every navigation (entry animations, resetting forms), `template.js` does that — `layout.js` won't.
+</Callout>
+
+---
+
+**References:** [Pages and Layouts](https://nextjs.org/docs/app/building-your-application/routing/pages-and-layouts) · [layout.js reference](https://nextjs.org/docs/app/api-reference/file-conventions/layout) · [template.js reference](https://nextjs.org/docs/app/api-reference/file-conventions/template) · [usePathname](https://nextjs.org/docs/app/api-reference/functions/use-pathname)

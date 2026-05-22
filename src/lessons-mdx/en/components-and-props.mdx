@@ -1,0 +1,416 @@
+# Components & Props
+
+A React application is a **tree of components**. Each component is a function that accepts some input (props) and returns JSX describing a piece of the UI. Components compose — you assemble small, focused pieces into larger screens — and they reuse freely.
+
+## Function components
+
+A function component is a JavaScript function that:
+
+- Accepts a single `props` argument and returns JSX.
+- Has a name that **starts with a capital letter** (PascalCase).
+
+```jsx
+function Greeting() {
+  return <p>Hello, world!</p>;
+}
+
+// Arrow-function style — identical behaviour
+const Greeting = () => <p>Hello, world!</p>;
+```
+
+The capital letter is what tells React "this is a component, not a DOM element". React renders `<Greeting />` by **calling** `Greeting()`. React renders `<div />` by creating a real DOM node.
+
+```jsx
+<Greeting />   // ✅ React calls Greeting() — your function runs
+<greeting />   // ❌ React creates a <greeting> DOM element — your function is never called
+```
+
+Convention: one component per file, file name matches the component name. `Button.jsx` exports `function Button`.
+
+## Props
+
+Props are the data a parent passes down to a child. They flow **one way** — parent to child — and are **read-only**: a component reads its props but never writes back.
+
+### Passing and reading props
+
+```jsx
+// Parent passes props as attributes
+<UserCard name="Alice" role="Admin" />
+
+// Child receives a single props object
+function UserCard(props) {
+  return (
+    <div>
+      <strong>{props.name}</strong>
+      <span>{props.role}</span>
+    </div>
+  );
+}
+```
+
+### Destructuring and default values
+
+Destructure props at the parameter level to make intent clear and set optional props inline:
+
+```jsx
+function UserCard({ name, role = 'Member', avatar = '/default-avatar.png' }) {
+  return (
+    <div>
+      <img src={avatar} alt={name} />
+      <strong>{name}</strong>
+      <span>{role}</span>
+    </div>
+  );
+}
+```
+
+`role = 'Member'` means the caller can omit `role` entirely and the component will fall back gracefully.
+
+### The children prop
+
+Any JSX placed **between the opening and closing tag** of a component arrives as the special `children` prop. This is the primitive that makes composition possible:
+
+```jsx
+function Card({ children }) {
+  return (
+    <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '1rem' }}>
+      {children}
+    </div>
+  );
+}
+
+// The caller controls what goes inside
+<Card>
+  <h2>Lesson 1</h2>
+  <p>Learn how JSX works.</p>
+  <Button>Start</Button>
+</Card>
+```
+
+`children` is just a regular prop. Its type is `React.ReactNode`: text, a single element, an array, or `null` all work.
+
+### Documenting props with JSDoc
+
+React has no built-in runtime prop validation. The lightweight modern alternative is a JSDoc comment — your editor uses it for autocomplete and inline documentation:
+
+```jsx
+/**
+ * @param {{
+ *   variant?: 'primary' | 'secondary' | 'ghost';
+ *   disabled?: boolean;
+ *   children: React.ReactNode;
+ * }} props
+ */
+function Button({ variant = 'primary', disabled = false, children }) {
+  // ...
+}
+```
+
+In a TypeScript project you would use an `interface Props` instead. JSDoc is the zero-dependency equivalent for plain JavaScript files.
+
+## Composition over configuration
+
+When a component needs to be flexible, the instinct is to add more props:
+
+```jsx
+// ❌ Configuration prop explosion — one flag per feature
+<Card
+  title="Lesson 1"
+  badge="12 min"
+  ctaLabel="Start"
+  showDivider
+  collapsible
+  badgeColor="blue"
+/>
+```
+
+Each requirement adds another prop. The component becomes a mini DSL instead of a UI primitive. The alternative is **composition**: let the caller pass structured content as `children` and named slots:
+
+```jsx
+// ✅ Composition — the caller assembles the structure
+<Card header="Lesson 1">
+  <p>JSX & Rendering — 12 min</p>
+  <Button>Start</Button>
+</Card>
+```
+
+The rule of thumb: if you find yourself adding props that control **what** gets rendered (boolean flags, label strings, colour names), consider making that content a `children` slot instead.
+
+## Components must be pure
+
+A component is **pure** if it always returns the same JSX for the same props, with no side effects during the render phase:
+
+```jsx
+// ✅ Pure — same props, same output, every time
+function Greeting({ name }) {
+  return <p>Hello, {name}!</p>;
+}
+
+// ❌ Impure — mutates an external variable during render
+let callCount = 0;
+function Counter() {
+  callCount += 1; // side effect during render
+  return <p>Rendered {callCount} times</p>;
+}
+```
+
+**During render**: no mutations, no network requests, no reading from `localStorage`, no `setTimeout`. Side effects belong in event handlers or the `useEffect` hook — covered in Lesson 6.
+
+<Callout type="info">
+React's Strict Mode intentionally calls your component function twice in development to expose impure behaviour. If your UI doubles up or logs fire twice, that is Strict Mode working correctly — not a bug.
+</Callout>
+
+---
+
+## Playground 1 — Build a Button component
+
+`Button.js` is a component driven entirely by two props: `variant` and `children`. Add a `'danger'` variant, or try passing a component as `children` instead of a plain string.
+
+<Playground
+  files={{
+    '/Button.js': `/**
+ * @param {{
+ *   variant?: 'primary' | 'secondary' | 'ghost';
+ *   disabled?: boolean;
+ *   children: React.ReactNode;
+ * }} props
+ */
+export function Button({ variant = 'primary', disabled = false, children }) {
+  const STYLES = {
+    primary:   { background: 'rebeccapurple', color: 'white',         border: 'none' },
+    secondary: { background: 'white',         color: 'rebeccapurple',  border: '2px solid rebeccapurple' },
+    ghost:     { background: 'transparent',   color: 'rebeccapurple',  border: 'none' },
+  };
+
+  return (
+    <button
+      disabled={disabled}
+      style={{
+        ...STYLES[variant],
+        padding: '0.5rem 1.25rem',
+        borderRadius: '6px',
+        fontFamily: 'sans-serif',
+        fontSize: '0.875rem',
+        fontWeight: 600,
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.5 : 1,
+      }}
+    >
+      {children}
+    </button>
+  );
+}`,
+    '/App.js': `import { Button } from './Button';
+
+export default function App() {
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', padding: '2rem', alignItems: 'center' }}>
+      <Button variant="primary">Save changes</Button>
+      <Button variant="secondary">Cancel</Button>
+      <Button variant="ghost">Learn more</Button>
+      <Button variant="primary" disabled>Saving…</Button>
+    </div>
+  );
+}`,
+  }}
+  activeFile="/Button.js"
+/>
+
+## Playground 2 — Card with slot-style composition
+
+`Card` takes a `header` string prop and a `children` slot. The caller controls what goes inside — the card itself never mentions buttons or paragraphs. Try passing a different component as `children`, or make `header` accept `React.ReactNode` so it can receive JSX too.
+
+<Playground
+  files={{
+    '/Card.js': `/**
+ * @param {{ header: string; children: React.ReactNode }} props
+ */
+export function Card({ header, children }) {
+  return (
+    <div style={{
+      border: '1px solid #e2e8f0',
+      borderRadius: '8px',
+      overflow: 'hidden',
+      fontFamily: 'sans-serif',
+      maxWidth: '360px',
+    }}>
+      <div style={{
+        padding: '0.75rem 1rem',
+        background: '#f8fafc',
+        borderBottom: '1px solid #e2e8f0',
+        fontWeight: 700,
+        fontSize: '0.875rem',
+      }}>
+        {header}
+      </div>
+      <div style={{
+        padding: '1rem',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '0.75rem',
+      }}>
+        {children}
+      </div>
+    </div>
+  );
+}`,
+    '/App.js': `import { Card } from './Card';
+
+function Button({ variant = 'primary', children }) {
+  const bg = variant === 'primary' ? 'rebeccapurple' : 'white';
+  const color = variant === 'primary' ? 'white' : 'rebeccapurple';
+  const border = variant === 'primary' ? 'none' : '2px solid rebeccapurple';
+  return (
+    <button style={{ padding: '0.5rem 1rem', borderRadius: '6px', background: bg, color, border, fontWeight: 600, cursor: 'pointer', fontFamily: 'sans-serif', fontSize: '0.875rem' }}>
+      {children}
+    </button>
+  );
+}
+
+export default function App() {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '2rem' }}>
+      <Card header="Lesson 1 — JSX & Rendering">
+        <p style={{ margin: 0, color: '#64748b', fontSize: '0.875rem' }}>
+          Learn how JSX compiles to React.createElement.
+        </p>
+        <Button variant="primary">Start lesson</Button>
+      </Card>
+
+      <Card header="Lesson 2 — Components & Props">
+        <p style={{ margin: 0, color: '#64748b', fontSize: '0.875rem' }}>
+          Build reusable components and compose UIs from small pieces.
+        </p>
+        <Button variant="secondary">Coming soon</Button>
+      </Card>
+    </div>
+  );
+}`,
+  }}
+  activeFile="/Card.js"
+/>
+
+## Playground 3 — Refactor: extract two components
+
+Below is the **before** state — three user cards with repeated inline markup:
+
+```jsx
+// ❌ Before: every card is a copy-paste of the same structure
+export default function App() {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '2rem', maxWidth: '420px' }}>
+      <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '1rem',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <p style={{ fontWeight: 700, margin: 0 }}>Alice Johnson</p>
+          <p style={{ color: '#64748b', fontSize: '0.875rem', margin: 0 }}>alice@example.com</p>
+        </div>
+        <span style={{ background: '#dcfce7', color: '#16a34a', padding: '0.25rem 0.75rem',
+                       borderRadius: '999px', fontSize: '0.75rem', fontWeight: 600 }}>Admin</span>
+      </div>
+      {/* ...two more identical blocks for Bob and Carol... */}
+    </div>
+  );
+}
+```
+
+The playground shows the refactored version. Open `UserCard.js` and `Badge.js` to see what was extracted. Then try: add a `'Guest'` colour to `Badge`, or give `UserCard` an `onClick` prop.
+
+<Playground
+  files={{
+    '/App.js': `import { UserCard } from './UserCard';
+import { Badge } from './Badge';
+
+const users = [
+  { name: 'Alice Johnson', email: 'alice@example.com', role: 'Admin'  },
+  { name: 'Bob Smith',     email: 'bob@example.com',   role: 'Member' },
+  { name: 'Carol Davis',   email: 'carol@example.com', role: 'Guest'  },
+];
+
+export default function App() {
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '420px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      {users.map((user) => (
+        <UserCard key={user.email} name={user.name} email={user.email}>
+          <Badge role={user.role}>{user.role}</Badge>
+        </UserCard>
+      ))}
+    </div>
+  );
+}`,
+    '/UserCard.js': `/**
+ * @param {{ name: string; email: string; children: React.ReactNode }} props
+ */
+export function UserCard({ name, email, children }) {
+  return (
+    <div style={{
+      border: '1px solid #e2e8f0',
+      borderRadius: '8px',
+      padding: '1rem',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    }}>
+      <div>
+        <p style={{ fontWeight: 700, margin: 0 }}>{name}</p>
+        <p style={{ color: '#64748b', fontSize: '0.875rem', margin: 0 }}>{email}</p>
+      </div>
+      {children}
+    </div>
+  );
+}`,
+    '/Badge.js': `const COLORS = {
+  Admin:  { bg: '#dcfce7', text: '#16a34a' },
+  Member: { bg: '#dbeafe', text: '#2563eb' },
+  Guest:  { bg: '#fef9c3', text: '#ca8a04' },
+};
+
+/**
+ * @param {{ role?: 'Admin' | 'Member' | 'Guest'; children: React.ReactNode }} props
+ */
+export function Badge({ role = 'Member', children }) {
+  const { bg, text } = COLORS[role] ?? COLORS.Member;
+  return (
+    <span style={{
+      background: bg,
+      color: text,
+      padding: '0.25rem 0.75rem',
+      borderRadius: '999px',
+      fontSize: '0.75rem',
+      fontWeight: 600,
+    }}>
+      {children}
+    </span>
+  );
+}`,
+  }}
+  activeFile="/UserCard.js"
+/>
+
+---
+
+## Common mistakes
+
+<Callout type="warn">
+**Forgetting PascalCase.** Writing `<userCard />` tells React to create a `<usercard>` DOM element — your component function is never called. The resulting error ("Unknown prop on `<usercard>`") is confusing because it looks like a JSX problem, not a naming one. Always capitalise.
+
+**Mutating props.** Props are read-only. `props.count++` or `item.name = 'new'` inside a component silently corrupts the parent's data. If you need a modified version, create a local copy: `const updated = { ...props, count: props.count + 1 }`.
+
+**Passing object literals inline.** `<Comp style={{ color: 'red' }} />` creates a brand-new object on every render. If `Comp` compares prop references (via `React.memo` or similar), it will always see a changed prop and re-render unnecessarily. Define static objects outside the component, or compute them with `useMemo` when they depend on state.
+</Callout>
+
+## Key takeaways
+
+<Callout type="tip">
+**Components are pure functions.** Same props in, same JSX out — every time. No side effects during render. Purity makes components predictable, testable, and safe for React to call multiple times.
+
+**Destructure props and set defaults at the parameter level.** `function Card({ header = 'Untitled', children })` is cleaner and safer than checking inside the body.
+
+**`children` is the composition primitive.** Anything between the opening and closing tag arrives as `children`. Use it instead of adding more configuration props — it keeps components focused and callers in control.
+
+**Prefer composition over configuration.** When props start controlling what gets rendered (flags, label strings, colour names), extract that content to a `children` slot. Fewer props, more flexibility.
+</Callout>
+
+---
+
+**References:** [Passing Props to a Component](https://react.dev/learn/passing-props-to-a-component) · [Components and Props](https://react.dev/learn/your-first-component) · [Keeping Components Pure](https://react.dev/learn/keeping-components-pure)

@@ -1,0 +1,476 @@
+# useEffect & Lifecycle
+
+Components do more than render HTML — they subscribe to data, start timers, sync with external APIs, and update the browser tab title. `useEffect` is the hook that connects React's render cycle to the world outside it.
+
+## The render → commit → effect pipeline
+
+React processes a component update in three distinct phases:
+
+```
+1. Render   — your component function runs; React builds a new element tree
+2. Commit   — React applies the minimal diff to the real DOM
+3. Effect   — useEffect callbacks fire after the browser has painted
+```
+
+The key detail: effects run **after** the user sees the update. They can safely read the finished DOM, start a subscription, or kick off a network request without blocking the browser from painting. If you need to run something *before* paint (to measure a DOM node, for example), that's `useLayoutEffect` — but `useEffect` covers almost everything else.
+
+## Declaring effects with useEffect
+
+```jsx
+import { useEffect } from 'react';
+
+useEffect(() => {
+  // side effect here
+  return () => {
+    // optional cleanup
+  };
+}, [/* dependency array */]);
+```
+
+The second argument — the dependency array — controls when the effect runs:
+
+| Dependency array | When the effect runs |
+|---|---|
+| *(omitted)* | After every render |
+| `[]` | Once, after the first render (mount) |
+| `[a, b]` | After mount, and whenever `a` or `b` changes |
+
+Omitting the array entirely is rarely correct — it re-runs the effect after every keystroke, state update, or parent re-render.
+
+## The dependency array in detail
+
+React compares dependencies using `Object.is` (strict equality). For primitive values — numbers, strings, booleans — this compares by value. For objects and functions it compares by **reference**:
+
+```jsx
+// ❌ Object literal — new reference on every render, always "changed"
+useEffect(() => {
+  subscribe(options);
+}, [{ threshold: 0.5 }]);
+
+// ✅ Stable reference — defined outside the component or with useMemo
+const OPTIONS = { threshold: 0.5 };
+useEffect(() => {
+  subscribe(OPTIONS);
+}, [OPTIONS]);
+```
+
+The React ESLint plugin (`eslint-plugin-react-hooks`) enforces exhaustive deps — it will warn if you use a value inside an effect but omit it from the array. Trust those warnings; missing deps cause stale closure bugs.
+
+## Cleanup functions
+
+Return a function from an effect to run cleanup code:
+
+```jsx
+useEffect(() => {
+  const sub = subscribe(userId);   // start
+  return () => sub.unsubscribe(); // stop
+}, [userId]);
+```
+
+React calls the cleanup function:
+1. **Before running the effect again** when dependencies change.
+2. **When the component unmounts** from the tree.
+
+The lifecycle for a changing `userId` looks like this:
+
+```
+Mount:           subscribe("alice")
+userId → "bob":  unsubscribe("alice") → subscribe("bob")
+Unmount:         unsubscribe("bob")
+```
+
+<Callout type="info">
+In **Strict Mode** (development only), React intentionally mounts every component twice — mount → unmount → mount — to surface missing cleanup. If your effect runs twice and causes a visible bug (duplicate subscriptions, double API calls), you have a cleanup problem, not a Strict Mode problem. The cleanup function is the fix.
+</Callout>
+
+## Common pitfalls
+
+### Infinite loops
+
+An effect that writes to a state variable it also lists as a dependency creates a loop:
+
+```jsx
+// ❌ Loop: setCount triggers re-render → effect reruns → setCount → ...
+useEffect(() => {
+  setCount(count + 1);
+}, [count]);
+```
+
+The fix here is the functional updater — which removes the dependency on `count` entirely:
+
+```jsx
+// ✅ No count in deps — functional updater reads the latest value internally
+useEffect(() => {
+  setCount(prev => prev + 1);
+}, []); // now only runs once
+```
+
+More generally: if an effect reads a value only to compute the next value of that same state, the functional updater form removes the dep and the loop.
+
+### Stale closures
+
+When you omit a dependency, the effect captures a snapshot of that value from the render when it first ran and never sees updates:
+
+```jsx
+// ❌ Stale: count captured as 0 at mount, interval always sets 0+1=1
+useEffect(() => {
+  const id = setInterval(() => {
+    setCount(count + 1); // "count" is always the initial value
+  }, 1000);
+  return () => clearInterval(id);
+}, []); // count missing from deps
+```
+
+Fix with a functional updater — the callback receives the latest value without needing to capture it:
+
+```jsx
+// ✅ Functional updater — no stale closure, no extra dep
+useEffect(() => {
+  const id = setInterval(() => {
+    setCount(prev => prev + 1); // always fresh
+  }, 1000);
+  return () => clearInterval(id);
+}, []);
+```
+
+### Fetching in effects — and its problems
+
+A plain `fetch` inside `useEffect` is the beginner approach to data loading. It works, but it has three sharp edges:
+
+1. **Race condition.** If `userId` changes before the first fetch resolves, both responses arrive in unpredictable order — the older one may overwrite the newer.
+2. **Strict Mode double-invoke.** In development React fires the effect twice, sending two network requests.
+3. **No cache.** Every mount re-fetches even if the data was just loaded.
+
+The standard mitigation is a cancel flag in the cleanup:
+
+```jsx
+useEffect(() => {
+  let ignore = false;
+
+  fetch(`/api/user/${userId}`)
+    .then(r => r.json())
+    .then(data => {
+      if (!ignore) setUser(data); // skip if a newer fetch already ran
+    });
+
+  return () => { ignore = true; };
+}, [userId]);
+```
+
+This prevents stale responses from updating state, but it doesn't solve caching or the loading-state-on-navigation problem. The correct long-term answer for data fetching in Next.js is **Server Components** — covered in the next chapter.
+
+## You might not need an effect
+
+Effects are for synchronizing React with systems *outside* React: DOM APIs, browser events, external subscriptions, network. If you're computing something purely from React state and props, an effect is the wrong tool.
+
+**Derived values — compute during render, not in an effect:**
+
+```jsx
+// ❌ Two renders, unnecessary state
+const [items, setItems] = useState([...]);
+const [filtered, setFiltered] = useState([]);
+useEffect(() => {
+  setFiltered(items.filter(i => i.active));
+}, [items]);
+
+// ✅ One render, no effect, always in sync
+const filtered = items.filter(i => i.active);
+```
+
+**User events — respond in the handler, not in an effect watching for a signal:**
+
+```jsx
+// ❌ Effect watching submitted flag
+useEffect(() => {
+  if (submitted) sendAnalytics('form_submit');
+}, [submitted]);
+
+// ✅ Directly in the handler — same timing, no extra state
+function handleSubmit() {
+  setSubmitted(true);
+  sendAnalytics('form_submit');
+}
+```
+
+Effects that only react to React state changes — where removing the effect and calling the side-effect from the event handler would work — should be moved to event handlers. Save effects for the things only effects can do.
+
+---
+
+## Playground 1 — Syncing document.title
+
+The effect reads `tabTitle` (a derived value computed during render) and writes it to `document.title`. Because `tabTitle` is a string, React compares it by value — the effect only fires when the title actually changes. The fake browser chrome below the input shows what the browser tab would display.
+
+<Playground
+  files={{
+    '/App.js': `import { useState, useEffect } from 'react';
+
+export default function App() {
+  const [count, setCount] = useState(0);
+  const [name, setName] = useState('React');
+
+  // Derived — computed during render, not stored in state
+  const tabTitle = count > 0 ? '(' + count + ') ' + name + ' Notes' : name + ' Notes';
+
+  useEffect(() => {
+    document.title = tabTitle;
+  }, [tabTitle]); // re-runs only when tabTitle changes
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '380px' }}>
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.5rem',
+        padding: '0.5rem 0.875rem',
+        background: '#1e293b',
+        borderRadius: '8px 8px 0 0',
+        marginBottom: '1.5rem',
+        fontSize: '0.8rem',
+        color: 'white',
+        fontFamily: 'monospace',
+        overflow: 'hidden',
+      }}>
+        <span>📄</span>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {tabTitle}
+        </span>
+      </div>
+
+      <label style={{ display: 'block', marginBottom: '1rem' }}>
+        <span style={{ display: 'block', fontSize: '0.8rem', color: '#64748b', marginBottom: '0.375rem' }}>
+          Your name
+        </span>
+        <input
+          value={name}
+          onChange={e => setName(e.target.value)}
+          style={{
+            padding: '0.5rem 0.75rem',
+            border: '1px solid #e2e8f0',
+            borderRadius: '6px',
+            fontSize: '0.875rem',
+            fontFamily: 'sans-serif',
+            width: '100%',
+            boxSizing: 'border-box',
+            outline: 'none',
+          }}
+        />
+      </label>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+        <button
+          onClick={() => setCount(c => c + 1)}
+          style={{
+            padding: '0.5rem 1.25rem',
+            background: 'rebeccapurple',
+            color: 'white',
+            border: 'none',
+            borderRadius: '6px',
+            fontWeight: 600,
+            cursor: 'pointer',
+            fontSize: '0.875rem',
+            fontFamily: 'sans-serif',
+          }}
+        >
+          Add note
+        </button>
+        <span style={{ fontSize: '0.875rem', color: '#64748b' }}>
+          {count} note{count !== 1 ? 's' : ''}
+        </span>
+      </div>
+    </div>
+  );
+}`,
+  }}
+  activeFile="/App.js"
+/>
+
+## Playground 2 — Interval cleanup
+
+`Timer` starts a `setInterval` on mount and clears it in the cleanup function. Toggle the timer on and off — each mount starts a fresh interval, each unmount clears it. Try removing the `return () => clearInterval(id)` line and toggling rapidly; without cleanup the intervals stack up and the counter accelerates on every remount.
+
+<Playground
+  files={{
+    '/Timer.js': `import { useState, useEffect } from 'react';
+
+export function Timer() {
+  const [seconds, setSeconds] = useState(0);
+
+  useEffect(() => {
+    // Effect: start the interval on mount
+    const id = setInterval(() => {
+      setSeconds(prev => prev + 1); // functional updater — no stale closure
+    }, 1000);
+
+    // Cleanup: stop the interval on unmount
+    return () => clearInterval(id);
+  }, []); // empty deps — run once on mount
+
+  return (
+    <div style={{
+      padding: '1.5rem',
+      background: 'white',
+      border: '1px solid #e2e8f0',
+      borderRadius: '8px',
+      textAlign: 'center',
+      fontFamily: 'sans-serif',
+    }}>
+      <p style={{ margin: '0 0 0.25rem', fontSize: '3rem', fontWeight: 700, color: 'rebeccapurple', lineHeight: 1 }}>
+        {seconds}
+      </p>
+      <p style={{ margin: 0, fontSize: '0.8rem', color: '#94a3b8' }}>seconds elapsed</p>
+    </div>
+  );
+}`,
+    '/App.js': `import { useState } from 'react';
+import { Timer } from './Timer';
+
+export default function App() {
+  const [show, setShow] = useState(true);
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '320px' }}>
+      <button
+        onClick={() => setShow(v => !v)}
+        style={{
+          padding: '0.5rem 1.25rem',
+          background: show ? '#fee2e2' : '#f0fdf4',
+          color: show ? '#dc2626' : '#16a34a',
+          border: 'none',
+          borderRadius: '6px',
+          fontWeight: 600,
+          cursor: 'pointer',
+          fontSize: '0.875rem',
+          fontFamily: 'sans-serif',
+          marginBottom: '1.25rem',
+          display: 'block',
+        }}
+      >
+        {show ? 'Unmount timer' : 'Mount timer'}
+      </button>
+
+      {show ? (
+        <Timer />
+      ) : (
+        <div style={{
+          padding: '1.5rem',
+          background: '#f8fafc',
+          border: '1px dashed #cbd5e1',
+          borderRadius: '8px',
+          textAlign: 'center',
+          color: '#94a3b8',
+          fontSize: '0.875rem',
+        }}>
+          Timer unmounted — interval cleared.
+        </div>
+      )}
+
+      <p style={{ marginTop: '1rem', fontSize: '0.75rem', color: '#94a3b8' }}>
+        Remove the cleanup return and toggle rapidly — intervals will stack.
+      </p>
+    </div>
+  );
+}`,
+  }}
+  activeFile="/Timer.js"
+/>
+
+## Playground 3 — Fetch in an effect
+
+The effect uses an `ignore` flag as its cleanup to cancel stale responses — if the component unmounts before the fetch resolves, the state updates are skipped. This is the minimum viable pattern for effect-based fetching.
+
+<Playground
+  files={{
+    '/App.js': `import { useState, useEffect } from 'react';
+
+export default function App() {
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let ignore = false; // cleanup flag
+
+    setLoading(true);
+    setError(null);
+
+    fetch('https://jsonplaceholder.typicode.com/users')
+      .then(res => {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(data => {
+        if (!ignore) {
+          setUsers(data.slice(0, 5));
+          setLoading(false);
+        }
+      })
+      .catch(err => {
+        if (!ignore) {
+          setError(err.message);
+          setLoading(false);
+        }
+      });
+
+    return () => { ignore = true; }; // cancel on unmount or re-run
+  }, []); // fetch once on mount
+
+  if (loading) return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', color: '#94a3b8' }}>
+      Loading users…
+    </div>
+  );
+
+  if (error) return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', color: '#dc2626' }}>
+      Error: {error}
+    </div>
+  );
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '400px' }}>
+      <p style={{ margin: '0 0 0.75rem', fontSize: '0.75rem', color: '#94a3b8' }}>
+        jsonplaceholder.typicode.com — first 5 results
+      </p>
+      <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        {users.map(user => (
+          <li key={user.id} style={{
+            padding: '0.625rem 0.875rem',
+            background: 'white',
+            border: '1px solid #e2e8f0',
+            borderRadius: '6px',
+          }}>
+            <strong style={{ display: 'block', fontSize: '0.875rem' }}>{user.name}</strong>
+            <span style={{ color: '#64748b', fontSize: '0.8rem' }}>{user.email}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}`,
+  }}
+  activeFile="/App.js"
+/>
+
+<Callout type="warn">
+This fetch pattern is shown here to illustrate how effects interact with async code — not as the recommended production approach. It has real problems: no request deduplication, no cache (every mount re-fetches), and it fires twice in Strict Mode (the `ignore` flag handles that, but two network requests go out). In the next chapter we move all data fetching to **Server Components**, which run on the server before the page reaches the browser — eliminating loading states, avoiding CORS, and removing this category of bug entirely.
+</Callout>
+
+---
+
+## Key takeaways
+
+<Callout type="tip">
+**Effects run after paint, not during render.** The sequence is render → commit → paint → effect. Never expect an effect to block the browser from showing the update. For pre-paint measurements use `useLayoutEffect`.
+
+**The dependency array controls when your effect runs.** `[]` means once on mount. `[a, b]` means mount plus whenever `a` or `b` changes (by reference). No array means after every render — almost never what you want. Trust the ESLint exhaustive-deps rule.
+
+**Always return a cleanup function when you start something.** Intervals, subscriptions, event listeners, and abort controllers all need cleanup. React calls it before the next run and on unmount. Strict Mode double-invokes to surface missing cleanup.
+
+**Functional updaters eliminate stale closures in intervals.** `setCount(prev => prev + 1)` doesn't need `count` in the dependency array because it doesn't read `count` — it receives the latest value as an argument.
+
+**Ask "is this really an effect?" before writing one.** Derived values belong in render. User-event responses belong in handlers. Synchronizing with external systems — DOM, timers, subscriptions, network — is what effects are for.
+</Callout>
+
+---
+
+**References:** [Synchronizing with Effects](https://react.dev/learn/synchronizing-with-effects) · [You Might Not Need an Effect](https://react.dev/learn/you-might-not-need-an-effect) · [useEffect](https://react.dev/reference/react/useEffect)

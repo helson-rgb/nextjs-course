@@ -2,6 +2,7 @@
   "nav.home":       "Home",
   "nav.lessons":    "Lezioni",
   "nav.curriculum": "Curriculum",
+  "nav.dashboard":  "Dashboard",
   "nav.about":      "Chi siamo",
 
   "home.headline": "Impara React & Next.js costruendo",
@@ -28,6 +29,9 @@
   "lesson.playground_note": "Questa lezione conterrà contenuto MDX e un playground interattivo con Sandpack.",
   "lesson.prev": "← Precedente",
   "lesson.next": "Successiva →",
+  "lesson.mark_complete": "Segna come completata",
+  "lesson.completed":     "Completata",
+  "lesson.progress":      "{done} di {total} completate",
 
   "lesson.jsx-and-rendering.title":   "JSX e Rendering",
   "lesson.jsx-and-rendering.summary": "Scopri come JSX estende JavaScript per descrivere la UI, come Babel lo trasforma e come React riconcilia il DOM virtuale con quello reale.",
@@ -68,14 +72,33 @@
   "lesson.route-handlers.title":   "Route Handler",
   "lesson.route-handlers.summary": "Crea endpoint JSON con route.js, gestisci GET/POST/PATCH/DELETE, leggi i body delle richieste e restituisci oggetti Response tipizzati.",
 
-  "lesson.metadata-and-seo.title":   "Metadata e SEO",
-  "lesson.metadata-and-seo.summary": "Esporta un oggetto metadata statico o una funzione generateMetadata, imposta i tag Open Graph e verifica le tue pagine nell'head del browser.",
+  "lesson.metadata-image-font.title":   "Metadata, Immagini e Font",
+  "lesson.metadata-image-font.summary": "Imposta titoli di pagina e tag Open Graph con l'API metadata, servi immagini ottimizzate con next/image ed elimina il layout shift con next/font.",
+
+  "lesson.server-actions.title":   "Server Actions",
+  "lesson.server-actions.summary": "Modifica dati con action \"use server\" chiamate direttamente dai form, mostra lo stato pendente con useFormStatus, gestisci gli errori con useActionState e rivalida la cache con revalidatePath.",
+
+  "lesson.caching-and-deploy.title":   "Cache & Deploy",
+  "lesson.caching-and-deploy.summary": "Comprendi le quattro cache di Next.js, controlla il rendering statico vs dinamico, rivalida on-demand, proteggi le route con middleware e pubblica su Vercel.",
 
   "lesson.loading-and-error-states.title":   "Stati di Caricamento ed Errore",
   "lesson.loading-and-error-states.summary": "Aggiungi skeleton di caricamento istantanei con loading.js, cattura gli errori a runtime con error.js e componi Suspense boundary per lo streaming granulare.",
 
   "lesson.deploy-and-optimize.title":   "Deploy e Ottimizzazione",
   "lesson.deploy-and-optimize.summary": "Pubblica su Vercel, leggi l'output del build, imposta le variabili d'ambiente, abilita l'ottimizzazione delle immagini ed esegui Lighthouse per misurare le performance reali.",
+
+  "dashboard.title":          "Dashboard",
+  "dashboard.progress_label": "lezioni completate",
+  "dashboard.last_lesson":    "Ultima lezione",
+  "dashboard.continue":       "Continua →",
+  "dashboard.start":          "Inizia il corso →",
+  "dashboard.certificate_heading": "Certificato di Completamento",
+  "dashboard.certificate_body":    "Hai completato tutte le {total} lezioni. Congratulazioni!",
+  "dashboard.download_pdf":        "Scarica Certificato PDF",
+  "dashboard.no_progress":         "Non hai ancora iniziato nessuna lezione.",
+
+  "palette.placeholder": "Cerca lezioni…",
+  "palette.no_results":  "Nessuna lezione trovata.",
 
   "notfound.code":   "404",
   "notfound.title":  "Lezione non trovata",

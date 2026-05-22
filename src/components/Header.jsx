@@ -4,12 +4,18 @@ import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useLocale } from '@/lib/i18n/LocaleProvider';
+import { useProgress } from '@/lib/ProgressContext';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
+import { CommandPalette } from '@/components/CommandPalette';
+import { LESSONS } from '@/lib/lessons';
+
+const LESSON_COUNT = LESSONS.length;
 
 const NAV_KEYS = [
   { key: 'nav.home', href: '/' },
   { key: 'nav.lessons', href: '/lessons' },
   { key: 'nav.curriculum', href: '/curriculum' },
+  { key: 'nav.dashboard', href: '/dashboard' },
   { key: 'nav.about', href: '/about' },
 ];
 
@@ -54,6 +60,7 @@ function MoonIcon() {
 
 export function Header() {
   const { t } = useLocale();
+  const { completed } = useProgress();
   const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
@@ -96,6 +103,26 @@ export function Header() {
         </nav>
 
         <div className="flex items-center gap-2">
+          {completed.length > 0 && (
+            <span className="hidden rounded-full bg-primary/10 px-3 py-1 font-body text-caption font-medium text-primary sm:inline-flex">
+              {t('lesson.progress', { done: completed.length, total: LESSON_COUNT })}
+            </span>
+          )}
+          <button
+            onClick={() => {
+              const ev = new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true });
+              document.dispatchEvent(ev);
+            }}
+            aria-label="Open command palette"
+            title="⌘K"
+            className="flex h-9 items-center gap-1.5 rounded-md border border-border px-3 font-body text-caption text-muted transition-colors hover:bg-neutral-200 hover:text-fg"
+          >
+            <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="11" cy="11" r="8" />
+              <path d="m21 21-4.35-4.35" />
+            </svg>
+            <span className="hidden sm:inline">⌘K</span>
+          </button>
           <LanguageSwitcher />
           <button
             onClick={toggleTheme}
@@ -106,6 +133,7 @@ export function Header() {
           </button>
         </div>
       </div>
+      <CommandPalette />
     </header>
   );
 }

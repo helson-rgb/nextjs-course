@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useLocale } from '@/lib/i18n/LocaleProvider';
 import { LessonNavigation } from '@/components/LessonNavigation';
+import { MarkCompleteButton } from '@/components/MarkCompleteButton';
 
 const CHAPTER_KEYS = {
   'React Fundamentals': 'chapter.react_fundamentals',
@@ -62,6 +63,10 @@ export function LessonPageShell({ lesson, prev, next, contentByLocale }) {
       <article className="prose dark:prose-invert max-w-none">
         {content ?? <p className="text-muted">{t('lesson.content_soon')}</p>}
       </article>
+
+      <div className="mt-12 flex justify-center border-t border-border pt-10">
+        <MarkCompleteButton slug={lesson.slug} />
+      </div>
 
       <LessonNavigation prev={prev} next={next} />
     </div>

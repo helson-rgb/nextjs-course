@@ -1,0 +1,440 @@
+# Form e Input Controllati
+
+Un form è controllato quando React gestisce il valore dell'input — lo state è l'unica fonte di verità e ogni pressione di tasto vi passa attraverso. Un form non controllato lascia al DOM la gestione del valore, che tu leggi tramite ref o `FormData` solo quando ne hai bisogno (di solito al submit).
+
+## Controllato vs non controllato
+
+```jsx
+// Non controllato — il DOM gestisce il valore
+function Uncontrolled() {
+  const ref = useRef();
+  return <input ref={ref} defaultValue="hello" />;
+}
+
+// Controllato — React gestisce il valore
+function Controlled() {
+  const [value, setValue] = useState('hello');
+  return <input value={value} onChange={e => setValue(e.target.value)} />;
+}
+```
+
+Con un input **controllato**, `value` è sempre lo state. React lo imposta a ogni render, quindi il testo visualizzato è sempre sincronizzato con quello presente nello state. Rimuovere `onChange` lo renderebbe di sola lettura — React combatterebbe il browser a ogni pressione di tasto. Rimuovere `value` lo trasformerebbe di nuovo in un input non controllato (con un avviso in console).
+
+Con un input **non controllato**, `defaultValue` imposta il valore iniziale, dopodiché il DOM prende il controllo. Recuperi il valore finale tramite un ref o `new FormData(form)` all'interno di `onSubmit`.
+
+## Un singolo handler onChange per più campi
+
+Quando un form ha più input, un handler per campo funziona ma genera codice ripetitivo. Il pattern consiste nel memorizzare tutti i valori dei campi in un unico oggetto e usare l'attributo `name` dell'input come chiave:
+
+```jsx
+function SignupForm() {
+  const [form, setForm] = useState({ name: '', email: '', password: '' });
+
+  function handleChange(e) {
+    const { name, value } = e.target;
+    setForm(prev => ({ ...prev, [name]: value }));
+  }
+
+  return (
+    <form>
+      <input name="name"     value={form.name}     onChange={handleChange} />
+      <input name="email"    value={form.email}    onChange={handleChange} />
+      <input name="password" value={form.password} onChange={handleChange} />
+    </form>
+  );
+}
+```
+
+`[name]: value` è una chiave di proprietà calcolata — usa la stringa `name` dell'input come chiave da aggiornare. Un solo handler, un numero qualsiasi di campi.
+
+## Raggruppare lo state del form in un oggetto
+
+Tenere i campi del form in un unico oggetto state ha un costo: ogni aggiornamento di campo sostituisce l'intero oggetto (tramite spread). Per form piccoli va bene. Per form grandi o con struttura profonda, considera di dividere lo state in chiamate `useState` indipendenti — ogni setter provoca un re-render solo nei componenti che consumano quel valore specifico.
+
+```jsx
+// Va bene per la maggior parte dei form
+const [form, setForm] = useState({ name: '', email: '' });
+
+// Meglio quando i campi sono indipendenti e le prestazioni contano
+const [name, setName]   = useState('');
+const [email, setEmail] = useState('');
+```
+
+## Validazione di base
+
+La validazione avviene in `handleChange` (feedback in tempo reale), `onBlur` (quando l'utente lascia il campo), oppure `onSubmit` (blocca la chiamata di rete). Mostrare gli errori immediatamente a ogni pressione di tasto può risultare aggressivo; mostrarli solo all'onBlur è un compromesso migliore:
+
+```jsx
+const [errors, setErrors] = useState({});
+
+function handleBlur(e) {
+  const { name, value } = e.target;
+  if (name === 'email' && !value.includes('@')) {
+    setErrors(prev => ({ ...prev, email: 'Inserisci un indirizzo email valido.' }));
+  } else {
+    setErrors(prev => ({ ...prev, [name]: '' }));
+  }
+}
+```
+
+Disabilita il pulsante di submit finché tutti i campi obbligatori non sono validi, per prevenire invii prematuri:
+
+```jsx
+const isValid = form.name.trim() && form.email.includes('@') && form.password.length >= 8;
+
+<button type="submit" disabled={!isValid}>
+  Crea account
+</button>
+```
+
+## Inviare con onSubmit e e.preventDefault()
+
+```jsx
+function handleSubmit(e) {
+  e.preventDefault();   // impedisce al browser di navigare verso "?"
+  console.log('inviato:', form);
+}
+
+<form onSubmit={handleSubmit}>…</form>
+```
+
+`e.preventDefault()` impedisce al browser di inviare il form come GET/POST HTTP e di navigare altrove. Chiamala sempre per prima, prima di qualsiasi aggiornamento di state o chiamata di rete.
+
+<Callout type="tip">
+**React 19 e le Server Actions di Next.js** — questo capitolo tratta i form controllati lato client perché comprenderli è un prerequisito. Nel capitolo su Next.js userai invece `<form action={serverAction}>`: la prop `action` riceve una funzione asincrona che viene eseguita sul server, senza bisogno di `e.preventDefault()` né di `fetch`. Gli hook `useActionState` e `useFormStatus` forniscono il feedback su pending/errori. Torneremo sui form nella lezione sul data fetching.
+</Callout>
+
+---
+
+## Playground 1 — Input controllato con contatore di caratteri in tempo reale
+
+`value` viene sempre letto dallo state; ogni pressione di tasto chiama `setValue`. Il contatore di caratteri si aggiorna immediatamente perché legge direttamente da `value`. Prova a rimuovere `value={value}` e osserva l'input diventare non controllato (il contatore non si aggiorna più).
+
+<Playground
+  files={{
+    '/App.js': `import { useState } from 'react';
+
+const MAX = 160;
+
+export default function App() {
+  const [value, setValue] = useState('');
+  const remaining = MAX - value.length;
+  const isNearLimit = remaining <= 20;
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '480px' }}>
+      <label
+        htmlFor="msg"
+        style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem', fontSize: '0.875rem' }}
+      >
+        Message
+      </label>
+      <textarea
+        id="msg"
+        rows={4}
+        value={value}
+        onChange={e => setValue(e.target.value)}
+        maxLength={MAX}
+        placeholder="Type something…"
+        style={{
+          width: '100%',
+          padding: '0.625rem 0.75rem',
+          border: '1px solid #e2e8f0',
+          borderRadius: '6px',
+          fontSize: '0.875rem',
+          fontFamily: 'sans-serif',
+          resize: 'vertical',
+          boxSizing: 'border-box',
+          outline: 'none',
+        }}
+      />
+      <p
+        style={{
+          textAlign: 'right',
+          fontSize: '0.75rem',
+          marginTop: '0.25rem',
+          color: isNearLimit ? '#dc2626' : '#64748b',
+          fontWeight: isNearLimit ? 600 : 400,
+        }}
+      >
+        {remaining} characters remaining
+      </p>
+    </div>
+  );
+}`,
+  }}
+  activeFile="/App.js"
+  height={380}
+/>
+
+## Playground 2 — Form di registrazione con validazione inline
+
+Tutti i campi condividono un unico oggetto `form` come state e un'unica funzione `handleChange`. Gli errori compaiono all'onBlur, non a ogni pressione di tasto. Il pulsante di submit rimane disabilitato finché tutti e tre i campi non superano i controlli. Prova a inviare con un'email non valida per vedere l'errore persistere.
+
+<Playground
+  files={{
+    '/App.js': `import { useState } from 'react';
+
+function Field({ label, id, type = 'text', name, value, error, onChange, onBlur }) {
+  return (
+    <div style={{ marginBottom: '1rem' }}>
+      <label
+        htmlFor={id}
+        style={{ display: 'block', fontWeight: 600, fontSize: '0.875rem', marginBottom: '0.25rem' }}
+      >
+        {label}
+      </label>
+      <input
+        id={id}
+        type={type}
+        name={name}
+        value={value}
+        onChange={onChange}
+        onBlur={onBlur}
+        style={{
+          width: '100%',
+          padding: '0.5rem 0.75rem',
+          border: \`1px solid \${error ? '#dc2626' : '#e2e8f0'}\`,
+          borderRadius: '6px',
+          fontSize: '0.875rem',
+          fontFamily: 'sans-serif',
+          outline: 'none',
+          boxSizing: 'border-box',
+        }}
+      />
+      {error && (
+        <p style={{ margin: '0.25rem 0 0', fontSize: '0.75rem', color: '#dc2626' }}>{error}</p>
+      )}
+    </div>
+  );
+}
+
+function validate(name, value) {
+  if (name === 'name'     && !value.trim())           return 'Name is required.';
+  if (name === 'email'    && !value.includes('@'))     return 'Enter a valid email address.';
+  if (name === 'password' && value.length < 8)         return 'Password must be at least 8 characters.';
+  return '';
+}
+
+export default function App() {
+  const [form,   setForm]   = useState({ name: '', email: '', password: '' });
+  const [errors, setErrors] = useState({ name: '', email: '', password: '' });
+  const [submitted, setSubmitted] = useState(false);
+
+  function handleChange(e) {
+    const { name, value } = e.target;
+    setForm(prev => ({ ...prev, [name]: value }));
+    // Clear error as user types after it appeared
+    if (errors[name]) {
+      setErrors(prev => ({ ...prev, [name]: validate(name, value) }));
+    }
+  }
+
+  function handleBlur(e) {
+    const { name, value } = e.target;
+    setErrors(prev => ({ ...prev, [name]: validate(name, value) }));
+  }
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    const next = {
+      name:     validate('name',     form.name),
+      email:    validate('email',    form.email),
+      password: validate('password', form.password),
+    };
+    setErrors(next);
+    if (Object.values(next).every(v => !v)) {
+      setSubmitted(true);
+    }
+  }
+
+  const isValid =
+    !validate('name',     form.name) &&
+    !validate('email',    form.email) &&
+    !validate('password', form.password);
+
+  if (submitted) {
+    return (
+      <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '400px' }}>
+        <p style={{ color: '#16a34a', fontWeight: 600 }}>✓ Account created for {form.email}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '400px' }}>
+      <h2 style={{ margin: '0 0 1.5rem', fontSize: '1.125rem', fontWeight: 700 }}>Create account</h2>
+      <form onSubmit={handleSubmit} noValidate>
+        <Field label="Name"     id="name"     name="name"     value={form.name}     error={errors.name}     onChange={handleChange} onBlur={handleBlur} />
+        <Field label="Email"    id="email"    name="email"    type="email" value={form.email}    error={errors.email}    onChange={handleChange} onBlur={handleBlur} />
+        <Field label="Password" id="password" name="password" type="password" value={form.password} error={errors.password} onChange={handleChange} onBlur={handleBlur} />
+        <button
+          type="submit"
+          disabled={!isValid}
+          style={{
+            width: '100%',
+            padding: '0.625rem',
+            background: isValid ? 'rebeccapurple' : '#e2e8f0',
+            color: isValid ? 'white' : '#94a3b8',
+            border: 'none',
+            borderRadius: '6px',
+            fontWeight: 600,
+            fontSize: '0.875rem',
+            fontFamily: 'sans-serif',
+            cursor: isValid ? 'pointer' : 'not-allowed',
+          }}
+        >
+          Create account
+        </button>
+      </form>
+    </div>
+  );
+}`,
+  }}
+  activeFile="/App.js"
+  height={500}
+/>
+
+## Playground 3 — Form con array di campi dinamici
+
+Lo state del form è un array di oggetti `{ id, value }`. "Add row" aggiunge una nuova voce; il pulsante × rimuove per id. L'`onChange` di ogni input usa `map` per aggiornare la riga corrispondente in modo immutabile. Prova ad aggiungere cinque righe, modificarle fuori ordine e rimuovere quella centrale.
+
+<Playground
+  files={{
+    '/App.js': `import { useState } from 'react';
+
+let nextId = 3;
+
+export default function App() {
+  const [rows, setRows] = useState([
+    { id: 1, value: 'React' },
+    { id: 2, value: 'Next.js' },
+  ]);
+
+  function addRow() {
+    setRows(prev => [...prev, { id: nextId++, value: '' }]);
+  }
+
+  function removeRow(id) {
+    setRows(prev => prev.filter(r => r.id !== id));
+  }
+
+  function updateRow(id, value) {
+    setRows(prev => prev.map(r => r.id === id ? { ...r, value } : r));
+  }
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    alert(JSON.stringify(rows.map(r => r.value), null, 2));
+  }
+
+  return (
+    <div style={{ fontFamily: 'sans-serif', padding: '2rem', maxWidth: '480px' }}>
+      <h2 style={{ margin: '0 0 1rem', fontSize: '1.125rem', fontWeight: 700 }}>Skills</h2>
+      <form onSubmit={handleSubmit}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '0.75rem' }}>
+          {rows.map((row, i) => (
+            <div key={row.id} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.75rem', color: '#94a3b8', width: '1.25rem', textAlign: 'right' }}>
+                {i + 1}
+              </span>
+              <input
+                value={row.value}
+                onChange={e => updateRow(row.id, e.target.value)}
+                placeholder={\`Skill \${i + 1}\`}
+                style={{
+                  flex: 1,
+                  padding: '0.5rem 0.75rem',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '6px',
+                  fontSize: '0.875rem',
+                  fontFamily: 'sans-serif',
+                  outline: 'none',
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => removeRow(row.id)}
+                disabled={rows.length === 1}
+                aria-label="Remove row"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: rows.length === 1 ? '#cbd5e1' : '#94a3b8',
+                  fontSize: '1.25rem',
+                  cursor: rows.length === 1 ? 'not-allowed' : 'pointer',
+                  lineHeight: 1,
+                  padding: '0 0.25rem',
+                }}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button
+            type="button"
+            onClick={addRow}
+            style={{
+              padding: '0.5rem 1rem',
+              background: 'white',
+              border: '1px solid #e2e8f0',
+              borderRadius: '6px',
+              fontWeight: 600,
+              fontSize: '0.875rem',
+              fontFamily: 'sans-serif',
+              cursor: 'pointer',
+            }}
+          >
+            + Add row
+          </button>
+          <button
+            type="submit"
+            style={{
+              padding: '0.5rem 1rem',
+              background: 'rebeccapurple',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              fontWeight: 600,
+              fontSize: '0.875rem',
+              fontFamily: 'sans-serif',
+              cursor: 'pointer',
+            }}
+          >
+            Save
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}`,
+  }}
+  activeFile="/App.js"
+  height={460}
+/>
+
+---
+
+## Controllato vs non controllato — quando scegliere quale
+
+<Callout type="tip">
+**Gli input controllati** sono la scelta predefinita giusta in React. React gestisce sempre il valore, quindi puoi:
+- Validare a ogni pressione di tasto o all'onBlur
+- Disabilitare il pulsante di submit finché non è valido
+- Riflettere il valore in un'altra parte dell'interfaccia istantaneamente
+- Resettare i campi in modo programmatico impostando lo state
+
+**Gli input non controllati** (con `defaultValue` / `ref` / `FormData`) vale la pena considerarli quando:
+- Stai integrando una libreria non React che gestisce il DOM autonomamente
+- Il form è molto grande e ri-renderizzare ogni campo a ogni pressione di tasto è misurabilmente lento
+- Stai migrando un form legacy e vuoi una diff minima
+
+In Next.js, le Server Actions accettano un oggetto `FormData` nativo — che funziona sia con input controllati che non controllati. Non sarà sempre necessario riflettere ogni campo nello state di React.
+</Callout>
+
+---
+
+**Riferimenti:** [Reacting to Input with State](https://react.dev/learn/reacting-to-input-with-state) · [Controlled vs Uncontrolled Components](https://react.dev/learn/sharing-state-between-components#controlled-and-uncontrolled-components) · [Forms (MDN)](https://developer.mozilla.org/en-US/docs/Learn/Forms)

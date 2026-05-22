@@ -13,6 +13,17 @@ export async function generateMetadata({ params }) {
   return {
     title: `${lesson.title} — Next Academy`,
     description: lesson.summary,
+    openGraph: {
+      title: lesson.title,
+      description: lesson.summary,
+      type: 'article',
+      // opengraph-image.js in this folder is picked up automatically
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: lesson.title,
+      description: lesson.summary,
+    },
   };
 }
 
